@@ -467,8 +467,13 @@ jobs:
           echo "PANEL_URL=$URL" >> "$GITHUB_ENV"
           echo "::notice title=whoisauto panel::$URL/?token=$TOKEN"
 
-          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "$URL/api/state")
-          echo "authenticated /api/state -> $code"
+          code=""
+          for _ in $(seq 1 12); do
+            code=$(curl -s --max-time 25 -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "$URL/api/state" || true)
+            echo "authenticated /api/state -> $code"
+            if [ "$code" = "200" ]; then break; fi
+            sleep 3
+          done
           [ "$code" = "200" ] || exit 1
 
           mkdir -p /tmp/conn-info

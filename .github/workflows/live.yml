@@ -108,12 +108,26 @@ jobs:
 
       - name: Verify the public URL
         run: |
-          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $PANEL_TOKEN" "$PANEL_URL/api/state")
-          echo "authenticated /api/state -> $code"
+          # a fresh trycloudflare hostname can take a few seconds to resolve
+          status() { curl -s --max-time 25 -o /dev/null -w "%{http_code}" "$@" || true; }
+
+          code=""
+          for _ in $(seq 1 12); do
+            code=$(status -H "Authorization: Bearer $PANEL_TOKEN" "$PANEL_URL/api/state")
+            echo "authenticated /api/state -> $code"
+            if [ "$code" = "200" ]; then break; fi
+            sleep 3
+          done
           [ "$code" = "200" ] || { echo "tunnel check failed"; exit 1; }
-          code=$(curl -s -o /dev/null -w "%{http_code}" "$PANEL_URL/api/state")
-          echo "anonymous /api/state -> $code (expected 401)"
-          [ "$code" = "401" ] || { echo "panel is exposed without auth"; exit 1; }
+
+          anon=""
+          for _ in $(seq 1 6); do
+            anon=$(status "$PANEL_URL/api/state")
+            echo "anonymous /api/state -> $anon (expected 401)"
+            if [ "$anon" = "401" ]; then break; fi
+            sleep 2
+          done
+          [ "$anon" = "401" ] || { echo "panel is exposed without auth"; exit 1; }
 
       - name: Join place
         if: ${{ inputs.place_id != '' }}
