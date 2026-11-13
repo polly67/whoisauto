@@ -45,10 +45,14 @@ jobs:
           # the bundled Injector is Intel; arm64 runners need Rosetta
           sudo softwareupdate --install-rosetta --agree-to-license 2>/dev/null || true
 
+          curl -fsSL "https://gitlab.com/norbyv1/opiumware/-/raw/main/inst" -o /tmp/opium-inst.sh
           set +e
-          curl -fsSL "https://gitlab.com/norbyv1/opiumware/-/raw/main/inst" | bash
-          INSTALL_STATUS=$?
+          bash /tmp/opium-inst.sh 2>&1 | tee /tmp/opium-install.log
+          INSTALL_STATUS=${PIPESTATUS[0]}
           set -e
+          echo "installer exit: $INSTALL_STATUS"
+          echo "rosetta: $(pgrep -q oahd && echo present || echo absent)"
+          tail -40 /tmp/opium-install.log || true
           if [ "$INSTALL_STATUS" -ne 0 ]; then
             echo "::warning::Opiumware installer exited $INSTALL_STATUS; continuing without a Player"
           fi
@@ -62,6 +66,15 @@ jobs:
             echo "OPOM_WORKSPACE=$HOME/Opiumware/workspace"
           } >> "$GITHUB_ENV"
           ls -la "$APP_DIR" || true
+
+      - name: Upload installer log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opium-install-log
+          retention-days: 3
+          if-no-files-found: ignore
+          path: /tmp/opium-install.log
 
       - name: Start opom
         run: |
