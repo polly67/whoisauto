@@ -36,6 +36,8 @@ class Paths:
     root: Path
     workspace: Path
     installers: Path
+    roblox: Path | None = None
+    editor: Path | None = None
 
     @property
     def opom_dir(self) -> Path:
@@ -47,11 +49,11 @@ class Paths:
 
     @property
     def editor_app(self) -> Path:
-        return self.root / "Apps" / "Opiumware.app"
+        return self.editor or (self.root / "Apps" / "Opiumware.app")
 
     @property
     def roblox_app(self) -> Path:
-        return self.root / "Apps" / "Roblox.app"
+        return self.roblox or (self.root / "Apps" / "Roblox.app")
 
     @property
     def account_file(self) -> Path:
@@ -94,7 +96,25 @@ class Paths:
         root = _path(os.environ.get("OPOM_ROOT"), runtime_path / "opom-root")
         workspace = _path(os.environ.get("OPOM_WORKSPACE"), root / "Data" / "workspace")
         installers = _path(os.environ.get("WHOISAUTO_INSTALLERS"), REPO / "installers")
-        return cls(REPO, runtime_path, state, root, workspace, installers)
+        return cls(REPO, runtime_path, state, root, workspace, installers,
+                   roblox=_app_path("OPOM_ROBLOX_APP", root, "Roblox.app"),
+                   editor=_app_path("OPOM_EDITOR_APP", root, "Opiumware.app"))
+
+
+def _app_path(env_name: str, root: Path, name: str) -> Path:
+    """App location, matching opom's own resolution order.
+
+    Third-party installers put the bundles in /Applications and only the data
+    directory under ~/Opiumware, so the env var and the /Applications fallback
+    have to be honoured here too.
+    """
+    value = os.environ.get(env_name)
+    if value:
+        return Path(value).expanduser().resolve()
+    candidate = root / "Apps" / name
+    if candidate.exists():
+        return candidate.resolve()
+    return (Path("/Applications") / name).resolve()
 
 
 def port_free(port: int, host: str = "127.0.0.1") -> bool:

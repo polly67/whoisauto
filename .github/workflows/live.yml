@@ -7,14 +7,6 @@ on:
         description: "Minutes to keep the panel online (max 350)"
         required: true
         default: "60"
-      opiumware_url:
-        description: "Download URL for the Opiumware build (blank = skip)"
-        required: false
-        default: ""
-      roblox_url:
-        description: "Download URL for the Opiumware-patched Roblox app (blank = skip)"
-        required: false
-        default: ""
       place_id:
         description: "Place id to join once the API is up (blank = skip)"
         required: false
@@ -48,24 +40,28 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .
 
-      - name: Install Opiumware and the patched Roblox app
-        if: ${{ inputs.opiumware_url != '' }}
-        env:
-          OPIUMWARE_URL: ${{ inputs.opiumware_url }}
-          ROBLOX_URL: ${{ inputs.roblox_url }}
+      - name: Install Opiumware and patched Roblox
         run: |
-          python - <<'PY'
-          import os
-          from whoisauto import installer
-          from whoisauto.config import Paths
+          # the bundled Injector is Intel; arm64 runners need Rosetta
+          sudo softwareupdate --install-rosetta --agree-to-license 2>/dev/null || true
 
-          paths = Paths.load()
-          paths.ensure()
-          print("editor:", installer.install(paths, "editor", os.environ["OPIUMWARE_URL"]))
-          if os.environ.get("ROBLOX_URL"):
-              print("roblox:", installer.install(paths, "roblox", os.environ["ROBLOX_URL"]))
-          print("launch:", installer.launch_editor(paths))
-          PY
+          set +e
+          curl -fsSL "https://gitlab.com/norbyv1/opiumware/-/raw/main/inst" | bash
+          INSTALL_STATUS=$?
+          set -e
+          if [ "$INSTALL_STATUS" -ne 0 ]; then
+            echo "::warning::Opiumware installer exited $INSTALL_STATUS; continuing without a Player"
+          fi
+
+          # the installer uses /Applications when writable, otherwise ~/Applications
+          if [ -d /Applications/Opiumware.app ]; then APP_DIR=/Applications; else APP_DIR="$HOME/Applications"; fi
+          {
+            echo "OPOM_ROOT=$HOME/Opiumware"
+            echo "OPOM_ROBLOX_APP=$APP_DIR/Roblox.app"
+            echo "OPOM_EDITOR_APP=$APP_DIR/Opiumware.app"
+            echo "OPOM_WORKSPACE=$HOME/Opiumware/workspace"
+          } >> "$GITHUB_ENV"
+          ls -la "$APP_DIR" || true
 
       - name: Start opom
         run: |

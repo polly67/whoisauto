@@ -54,3 +54,20 @@ def test_paths_load_honours_runtime(tmp_path, monkeypatch):
     assert value.runtime == (tmp_path / "rt").resolve()
     assert value.root == (tmp_path / "rt" / "opom-root").resolve()
     assert value.workspace == value.root / "Data" / "workspace"
+
+
+def test_paths_load_honours_app_overrides(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPOM_ROBLOX_APP", str(tmp_path / "Roblox.app"))
+    monkeypatch.setenv("OPOM_EDITOR_APP", str(tmp_path / "Opiumware.app"))
+    value = Paths.load(tmp_path / "rt")
+    assert value.roblox_app == (tmp_path / "Roblox.app").resolve()
+    assert value.editor_app == (tmp_path / "Opiumware.app").resolve()
+
+
+def test_paths_fall_back_to_applications(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPOM_ROBLOX_APP", raising=False)
+    monkeypatch.delenv("OPOM_EDITOR_APP", raising=False)
+    monkeypatch.delenv("OPOM_ROOT", raising=False)
+    value = Paths.load(tmp_path / "rt")
+    assert value.roblox_app == Path("/Applications/Roblox.app")
+    assert value.editor_app == Path("/Applications/Opiumware.app")
