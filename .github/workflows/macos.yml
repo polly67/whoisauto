@@ -2,27 +2,27 @@ name: macos
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
+# One runner per ref: a new push cancels the previous run instead of queueing
+# another macOS job behind it.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: macos-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  tests:
-    name: pytest (py${{ matrix.python-version }})
+  test:
+    name: tests + smoke
     runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.13"]
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
 
       - name: Install
         run: |
@@ -32,32 +32,19 @@ jobs:
       - name: Test
         run: python -m pytest -q
 
-  smoke:
-    name: smoke (real opom + panel)
-    runs-on: macos-latest
-    needs: tests
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Install
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e .
-
-      - name: Start opom on the default port
+      - name: Start opom
         run: |
           python -m whoisauto start --opom-port 8765
           python -m whoisauto status
 
-      - name: Panel answers and sees the API
+      - name: Panel sees the API
         run: |
-          python -m whoisauto serve --port 8099 --no-browser &
-          PANEL=$!
-          sleep 3
+          python -m whoisauto serve --port 8099 --no-browser > /tmp/panel.log 2>&1 &
+          for _ in $(seq 30); do
+            if grep -q "whoisauto: http" /tmp/panel.log 2>/dev/null; then break; fi
+            sleep 1
+          done
+          cat /tmp/panel.log
           curl -fsS http://127.0.0.1:8099/api/state > state.json
           python - <<'PY'
           import json
@@ -67,7 +54,7 @@ jobs:
           assert state["install"]["opom"]["present"], state["install"]
           print("panel ok:", state["service"]["port"], state["platform"])
           PY
-          kill $PANEL
+          pkill -f "whoisauto serve" || true
 
       - name: Port conflict handling
         run: |
@@ -98,6 +85,4 @@ jobs:
 
       - name: Stop
         if: always()
-        run: |
-          python -m whoisauto stop --opom-port 8765 || true
-          python -m whoisauto stop --opom-port 8770 || true
+        run: python -m whoisauto stop || true

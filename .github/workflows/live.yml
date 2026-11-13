@@ -75,6 +75,7 @@ jobs:
       - name: Start panel and open the tunnel
         run: |
           TOKEN=$(python -c "import secrets; print(secrets.token_urlsafe(18))")
+          export WHOISAUTO_ACCESS_TOKEN="$TOKEN" PANEL_TOKEN="$TOKEN"
           echo "WHOISAUTO_ACCESS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
           echo "PANEL_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
@@ -84,6 +85,11 @@ jobs:
             if [ -n "$PORT" ]; then break; fi
             sleep 1
           done
+          if [ -z "$PORT" ]; then
+            echo "panel did not start; log follows"
+            cat /tmp/panel.log
+            exit 1
+          fi
           echo "panel port: $PORT"
           echo "PANEL_PORT=$PORT" >> "$GITHUB_ENV"
 
