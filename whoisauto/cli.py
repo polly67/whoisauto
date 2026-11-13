@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import threading
 import webbrowser
 
 from . import installer
-from .config import DEFAULT_OPOM_PORT, DEFAULT_WEB_PORT, Paths
+from .config import DEFAULT_OPOM_PORT, DEFAULT_WEB_PORT, Paths, write_json
 from .service import OpomService, ServiceError
 from .web import serve
 
@@ -23,6 +24,9 @@ def cmd_serve(args) -> int:
     server = serve(paths, args.port, args.opom_port)
     host, port = server.server_address
     url = f"http://{host}:{port}"
+    # Callers (CI, service managers) poll this instead of scraping stdout.
+    record = paths.state / "panel.json"
+    write_json(record, {"port": port, "url": url, "pid": os.getpid()})
     print(f"whoisauto: {url}", flush=True)
     if not args.no_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
@@ -32,6 +36,7 @@ def cmd_serve(args) -> int:
         pass
     finally:
         server.server_close()
+        record.unlink(missing_ok=True)
     return 0
 
 

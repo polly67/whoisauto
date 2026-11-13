@@ -438,15 +438,21 @@ jobs:
           echo "WHOISAUTO_ACCESS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
           echo "PANEL_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
-          python -m whoisauto serve --port 8080 --no-browser > /tmp/panel.log 2>&1 &
+          python -u -m whoisauto serve --port 8080 --no-browser > /tmp/panel.log 2>&1 &
+          PANEL_PID=$!
           PORT=""
           for _ in $(seq 30); do
-            PORT=$(grep -Eo 'http://127\.0\.0\.1:[0-9]+' /tmp/panel.log | head -1 | grep -Eo '[0-9]+$' || true)
+            PORT=$(python -c "import json; print(json.load(open('runtime/state/panel.json'))['port'])" 2>/dev/null || true)
             if [ -n "$PORT" ]; then break; fi
             sleep 1
           done
-          cat /tmp/panel.log
-          if [ -z "$PORT" ]; then echo "panel did not start"; exit 1; fi
+          echo "panel log:"; cat /tmp/panel.log 2>/dev/null || true
+          echo "panel pid $PANEL_PID: $(ps -p $PANEL_PID -o stat= 2>/dev/null || echo gone)"
+          if [ -z "$PORT" ]; then
+            echo "panel did not start"
+            pgrep -fl whoisauto || true
+            exit 1
+          fi
           echo "PANEL_PORT=$PORT" >> "$GITHUB_ENV"
 
           brew install cloudflared >/dev/null 2>&1 || true
