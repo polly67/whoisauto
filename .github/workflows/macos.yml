@@ -73,21 +73,6 @@ jobs:
         run: |
           python -m whoisauto stop --opom-port 8765
 
-          # wait for the previous listener to release the socket before reusing it
-          python - <<'PY'
-          import socket, time
-          for _ in range(100):
-              with socket.socket() as probe:
-                  try:
-                      probe.bind(("127.0.0.1", 8765))
-                  except OSError:
-                      time.sleep(0.1)
-                      continue
-              break
-          else:
-              raise SystemExit("8765 is still busy")
-          PY
-
           # occupy 8770; the panel must fall back to 8771 instead of dying on bind
           python - <<'PY' &
           import socket, time
