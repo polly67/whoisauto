@@ -9,6 +9,7 @@ import json
 import mimetypes
 import os
 from pathlib import Path
+import socketserver
 import sys
 import time
 import urllib.parse
@@ -343,6 +344,14 @@ class Server(ThreadingHTTPServer):
         self.panel = panel
         self.access_token = access_token
         super().__init__(address, Handler)
+
+    def server_bind(self):
+        # HTTPServer.server_bind calls socket.getfqdn(), which can block for
+        # tens of seconds on a runner with slow reverse DNS. opom skips it for
+        # the same reason; the panel never uses server_name.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = "localhost"
+        self.server_port = self.server_address[1]
 
 
 def serve(paths: Paths, port: int = DEFAULT_WEB_PORT, opom_port: int | None = None) -> Server:
