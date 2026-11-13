@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import hmac
 import json
 import mimetypes
+import os
 from pathlib import Path
 import sys
 import time
@@ -241,11 +243,40 @@ class Handler(BaseHTTPRequestHandler):
             raise PanelError(400, "invalid_body", "Body must be a JSON object")
         return body
 
+    def authorized(self, path: str) -> bool:
+        token = self.server.access_token
+        if not token or path.startswith("/static/"):
+            return True
+        if hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + token):
+            return True
+        for part in self.headers.get("Cookie", "").split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == "whoisauto_token" and hmac.compare_digest(value, token):
+                return True
+        return False
+
+    def grant(self, token: str) -> None:
+        if not hmac.compare_digest(token, self.server.access_token):
+            raise PanelError(401, "unauthorized", "Bad access token")
+        self.send_response(302)
+        self.send_header("Location", "/")
+        self.send_header("Set-Cookie",
+                         f"whoisauto_token={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200")
+        self.send_header("Content-Length", "0")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
     def dispatch(self, method: str) -> None:
         try:
             parsed = urllib.parse.urlsplit(self.path)
             path = parsed.path.rstrip("/") or "/"
             query = {key: values[0] for key, values in urllib.parse.parse_qs(parsed.query).items()}
+            if self.server.access_token and path == "/" and query.get("token"):
+                return self.grant(query["token"])
+            if not self.authorized(path):
+                raise PanelError(401, "unauthorized",
+                                 "Append ?token=<access token> to the URL, or send a bearer token")
             if method == "GET" and not path.startswith("/api/"):
                 return self.serve_static(path)
             body = self.read_body() if method in ("POST", "PUT", "DELETE") else {}
@@ -308,8 +339,9 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     block_on_close = False
 
-    def __init__(self, address, panel: Panel):
+    def __init__(self, address, panel: Panel, access_token: str = ""):
         self.panel = panel
+        self.access_token = access_token
         super().__init__(address, Handler)
 
 
@@ -318,4 +350,4 @@ def serve(paths: Paths, port: int = DEFAULT_WEB_PORT, opom_port: int | None = No
     service = OpomService(paths, opom_port or 8765)
     panel = Panel(paths, service)
     bound = find_free_port(port)
-    return Server(("127.0.0.1", bound), panel)
+    return Server(("127.0.0.1", bound), panel, os.environ.get("WHOISAUTO_ACCESS_TOKEN", ""))

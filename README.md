@@ -112,3 +112,17 @@ server and the panel on the runner.
 - `runtime/` and `installers/` are gitignored; the token lives only in `runtime/state/`.
 - The vendored opom keeps its own MIT license; see `vendor/opom/LICENSE`.
 - `vendor/opom/VENDORED_COMMIT` records the upstream commit the copy came from.
+
+## Live panel over cloudflared
+
+`.github/workflows/live.yml` boots a `macos-latest` runner, installs the apps (when you
+pass download URLs), starts opom and the panel, and publishes it through a cloudflared
+quick tunnel. It prints the URL and a generated access token to the job summary.
+
+Because the tunnel is public, the panel refuses every `/api/*` request unless the
+request carries `Authorization: Bearer <token>` or the `whoisauto_token` cookie that
+`/?token=<token>` sets. `WHOISAUTO_ACCESS_TOKEN` enables this; leave it unset for
+localhost-only use.
+
+The job keeps the panel alive for the requested number of minutes and dies with the
+runner — it is not a permanent deployment.

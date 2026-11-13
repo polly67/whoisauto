@@ -140,3 +140,65 @@ def test_service_stop_route(panel, fake_opom):
     assert status == 200
     assert payload["stopped"] is True
     assert any(entry[1] == "/shutdown" for entry in fake_opom.calls)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+@pytest.fixture
+def secure_panel(paths, fake_opom):
+    write_json(paths.port_file, {"port": fake_opom.server_address[1], "pid": 4242})
+    server = Server(("127.0.0.1", 0), Panel(paths, OpomService(paths)), access_token="s3cret")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_panel_rejects_unauthenticated_api(secure_panel):
+    status, payload = call(secure_panel, "GET", "/api/state")
+    assert status == 401
+    assert payload["error"] == "unauthorized"
+
+
+def test_panel_accepts_bearer(secure_panel):
+    request = urllib.request.Request(secure_panel + "/api/state",
+                                     headers={"Authorization": "Bearer s3cret"})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        assert response.status == 200
+
+
+def test_panel_accepts_wrong_token_as_rejection(secure_panel):
+    request = urllib.request.Request(secure_panel + "/api/state",
+                                     headers={"Authorization": "Bearer nope"})
+    with pytest.raises(urllib.error.HTTPError) as error:
+        urllib.request.urlopen(request, timeout=10)
+    assert error.value.code == 401
+
+
+def test_token_link_sets_cookie(secure_panel):
+    opener = urllib.request.build_opener(_NoRedirect)
+    with pytest.raises(urllib.error.HTTPError) as error:
+        opener.open(secure_panel + "/?token=s3cret", timeout=10)
+    response = error.value
+    assert response.code == 302
+    assert response.headers["Location"] == "/"
+    assert "whoisauto_token=s3cret" in response.headers["Set-Cookie"]
+
+
+def test_cookie_authorises_api(secure_panel):
+    request = urllib.request.Request(secure_panel + "/api/state",
+                                     headers={"Cookie": "whoisauto_token=s3cret"})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        assert response.status == 200
+
+
+def test_static_assets_stay_public(secure_panel):
+    status, body = fetch_text(secure_panel, "/static/style.css")
+    assert status == 200
+    assert "--bg" in body

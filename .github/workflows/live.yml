@@ -1,0 +1,158 @@
+name: live
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Minutes to keep the panel online (max 350)"
+        required: true
+        default: "60"
+      opiumware_url:
+        description: "Download URL for the Opiumware build (blank = skip)"
+        required: false
+        default: ""
+      roblox_url:
+        description: "Download URL for the Opiumware-patched Roblox app (blank = skip)"
+        required: false
+        default: ""
+      place_id:
+        description: "Place id to join once the API is up (blank = skip)"
+        required: false
+        default: ""
+      tailscale:
+        description: "Join the tailnet for SSH access (needs TAILSCALE_AUTHKEY)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-panel
+  cancel-in-progress: true
+
+jobs:
+  live:
+    name: macOS panel + cloudflared
+    runs-on: macos-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install whoisauto
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Install Opiumware and the patched Roblox app
+        if: ${{ inputs.opiumware_url != '' }}
+        env:
+          OPIUMWARE_URL: ${{ inputs.opiumware_url }}
+          ROBLOX_URL: ${{ inputs.roblox_url }}
+        run: |
+          python - <<'PY'
+          import os
+          from whoisauto import installer
+          from whoisauto.config import Paths
+
+          paths = Paths.load()
+          paths.ensure()
+          print("editor:", installer.install(paths, "editor", os.environ["OPIUMWARE_URL"]))
+          if os.environ.get("ROBLOX_URL"):
+              print("roblox:", installer.install(paths, "roblox", os.environ["ROBLOX_URL"]))
+          print("launch:", installer.launch_editor(paths))
+          PY
+
+      - name: Start opom
+        run: |
+          python -m whoisauto start
+          python -m whoisauto status
+
+      - name: Start panel and open the tunnel
+        run: |
+          TOKEN=$(python -c "import secrets; print(secrets.token_urlsafe(18))")
+          echo "WHOISAUTO_ACCESS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          echo "PANEL_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+          python -m whoisauto serve --port 8080 --no-browser > /tmp/panel.log 2>&1 &
+          for _ in $(seq 30); do
+            PORT=$(grep -Eo 'http://127\.0\.0\.1:[0-9]+' /tmp/panel.log | head -1 | grep -Eo '[0-9]+$')
+            [ -n "$PORT" ] && break
+            sleep 1
+          done
+          echo "panel port: $PORT"
+          echo "PANEL_PORT=$PORT" >> "$GITHUB_ENV"
+
+          brew install cloudflared >/dev/null 2>&1 || true
+          cloudflared tunnel --url "http://127.0.0.1:$PORT" --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+          for _ in $(seq 60); do
+            URL=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cloudflared.log | head -1)
+            [ -n "$URL" ] && break
+            sleep 2
+          done
+          if [ -z "$URL" ]; then
+            echo "cloudflared did not publish a URL"; tail -40 /tmp/cloudflared.log; exit 1
+          fi
+          echo "PANEL_URL=$URL" >> "$GITHUB_ENV"
+          echo "::notice title=whoisauto panel::$URL/?token=$TOKEN"
+
+      - name: Verify the public URL
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $PANEL_TOKEN" "$PANEL_URL/api/state")
+          echo "authenticated /api/state -> $code"
+          [ "$code" = "200" ] || { echo "tunnel check failed"; exit 1; }
+          code=$(curl -s -o /dev/null -w "%{http_code}" "$PANEL_URL/api/state")
+          echo "anonymous /api/state -> $code (expected 401)"
+          [ "$code" = "401" ] || { echo "panel is exposed without auth"; exit 1; }
+
+      - name: Join place
+        if: ${{ inputs.place_id != '' }}
+        env:
+          PLACE_ID: ${{ inputs.place_id }}
+        run: |
+          python - "$PANEL_URL" "$PANEL_TOKEN" "$PLACE_ID" <<'PY'
+          import json, sys, urllib.request
+          url, token, place = sys.argv[1:4]
+          body = json.dumps({"place_id": int(place), "wait": 20}).encode()
+          request = urllib.request.Request(url + "/api/join", data=body, headers={
+              "Authorization": "Bearer " + token, "Content-Type": "application/json"})
+          print(urllib.request.urlopen(request, timeout=60).read().decode())
+          PY
+
+      - name: Tailscale
+        if: ${{ inputs.tailscale }}
+        continue-on-error: true
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+      - name: Publish connection details
+        run: |
+          {
+            echo "## whoisauto panel is live"
+            echo ""
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Panel | $PANEL_URL/?token=$PANEL_TOKEN |"
+            echo "| Access token | \`$PANEL_TOKEN\` |"
+            echo "| opom port | $(python -m whoisauto status | python -c 'import json,sys; print(json.load(sys.stdin)["service"].get("port"))') |"
+            echo "| Runner | $(uname -m) macOS $(sw_vers -productVersion) |"
+            echo ""
+            echo "Ends when this job stops (timeout ${MINUTES}m)."
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          MINUTES: ${{ inputs.minutes }}
+
+      - name: Keep alive
+        run: sleep $(( ${{ inputs.minutes }} * 60 ))
+
+      - name: Shut down
+        if: always()
+        run: |
+          pkill -f "cloudflared tunnel" || true
+          pkill -f "whoisauto serve" || true
+          python -m whoisauto stop || true
