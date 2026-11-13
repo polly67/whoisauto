@@ -1,0 +1,142 @@
+import json
+import threading
+import urllib.error
+import urllib.request
+
+import pytest
+
+from whoisauto import roblox
+from whoisauto.config import write_json
+from whoisauto.service import OpomService
+from whoisauto.web import Panel, Server, load_account
+
+
+@pytest.fixture
+def panel(paths, fake_opom):
+    write_json(paths.port_file, {"port": fake_opom.server_address[1], "pid": 4242})
+    server = Server(("127.0.0.1", 0), Panel(paths, OpomService(paths)))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def call(base, method, path, body=None):
+    data = None if body is None else json.dumps(body).encode()
+    request = urllib.request.Request(base + path, data=data, method=method,
+                                     headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return response.status, json.load(response)
+    except urllib.error.HTTPError as error:
+        with error:
+            return error.code, json.load(error)
+
+
+def fetch_text(base, path):
+    with urllib.request.urlopen(base + path, timeout=10) as response:
+        return response.status, response.read().decode()
+
+
+def test_state_reports_install_and_service(panel, fake_opom):
+    status, payload = call(panel, "GET", "/api/state")
+    assert status == 200
+    assert payload["service"]["running"] is True
+    assert payload["service"]["port"] == fake_opom.server_address[1]
+    assert payload["install"]["editor"]["available"] is False
+    assert payload["account"]["signed_in"] is False
+
+
+def test_index_is_served(panel):
+    status, body = fetch_text(panel, "/")
+    assert status == 200
+    assert "whoisauto" in body
+    assert "/static/app.js" in body
+
+
+def test_unknown_route_returns_json_404(panel):
+    status, payload = call(panel, "GET", "/api/nope")
+    assert status == 404
+    assert payload["error"] == "not_found"
+
+
+def test_account_roundtrip(panel, paths, monkeypatch):
+    monkeypatch.setattr("whoisauto.web.roblox.validate_token",
+                        lambda token: {"id": 7, "name": "tester", "display_name": "Tester",
+                                       "masked": roblox.mask(token)})
+    status, payload = call(panel, "POST", "/api/account", {"token": ".ROBLOSECURITY=abc123"})
+    assert status == 200
+    assert payload["account"]["user"]["name"] == "tester"
+
+    record = load_account(paths)
+    assert record["token"] == "abc123"
+    assert oct(paths.account_file.stat().st_mode & 0o777) == oct(0o600)
+
+    status, listed = call(panel, "GET", "/api/account")
+    assert listed["account"]["signed_in"] is True
+    assert "abc123" not in json.dumps(listed)
+
+    status, cleared = call(panel, "DELETE", "/api/account")
+    assert cleared["account"]["signed_in"] is False
+    assert load_account(paths) is None
+
+
+def test_account_rejects_bad_token(panel, monkeypatch):
+    def reject(token):
+        raise roblox.RobloxError("unauthorized", "Roblox rejected the token", 401)
+
+    monkeypatch.setattr("whoisauto.web.roblox.validate_token", reject)
+    status, payload = call(panel, "POST", "/api/account", {"token": "bad"})
+    assert status == 401
+    assert payload["error"] == "unauthorized"
+
+
+def test_join_proxies_place_id(panel, fake_opom):
+    status, payload = call(panel, "POST", "/api/join", {"place_id": 2753915549, "wait": 5})
+    assert status == 200
+    assert payload["joined"] is True
+    assert any(entry[0] == "POST" and entry[1] == "/join" and entry[2]["place_id"] == 2753915549
+               for entry in fake_opom.calls)
+
+
+def test_join_validates_place_id(panel):
+    status, payload = call(panel, "POST", "/api/join", {"place_id": "not-a-number"})
+    assert status == 400
+    assert payload["error"] == "invalid_place_id"
+
+
+def test_execute_returns_job(panel):
+    status, payload = call(panel, "POST", "/api/execute", {"script": "print('hi')", "check": True})
+    assert status == 200
+    assert payload["job"]["status"] == "completed"
+
+
+def test_execute_rejects_empty_script(panel):
+    status, payload = call(panel, "POST", "/api/execute", {"script": "   "})
+    assert status == 400
+    assert payload["error"] == "empty_script"
+
+
+def test_players_combines_instances_and_place(panel, monkeypatch):
+    monkeypatch.setattr("whoisauto.web.roblox.place_details",
+                        lambda place_id: {"place_id": place_id, "name": "Test Place"})
+    monkeypatch.setattr("whoisauto.web.roblox.public_servers",
+                        lambda place_id, token=None: {"servers": [{"id": "s1", "playing": 3,
+                                                                   "max_players": 10}],
+                                                      "total_players": 3})
+    status, payload = call(panel, "GET", "/api/players?place_id=42")
+    assert status == 200
+    assert payload["count"] == 1
+    assert payload["instances"][0]["runtime"]["player"]["name"] == "tester"
+    assert payload["place"]["name"] == "Test Place"
+    assert payload["servers"]["total_players"] == 3
+
+
+def test_service_stop_route(panel, fake_opom):
+    status, payload = call(panel, "POST", "/api/service/stop")
+    assert status == 200
+    assert payload["stopped"] is True
+    assert any(entry[1] == "/shutdown" for entry in fake_opom.calls)

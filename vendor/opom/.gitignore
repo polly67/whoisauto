@@ -1,0 +1,15 @@
+.state/
+build/
+dist/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.DS_Store
+.env
+.env.*
+!.env.example
+*.cookie
+*.token
+Roblox.app/
+Opiumware.app/

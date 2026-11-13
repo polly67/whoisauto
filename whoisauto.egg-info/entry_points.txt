@@ -1,0 +1,2 @@
+[console_scripts]
+whoisauto = whoisauto.cli:main

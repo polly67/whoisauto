@@ -1,0 +1,6 @@
+Metadata-Version: 2.4
+Name: whoisauto
+Version: 0.1.0
+Summary: Web control panel and automation layer for the opom executor API
+License: MIT
+Requires-Python: >=3.11

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>whoisauto</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="dot" id="dot-api"></span>
+    <h1>whoisauto</h1>
+    <span class="version">opom control panel</span>
+  </div>
+  <div class="pills">
+    <span class="pill" id="pill-api">api: —</span>
+    <span class="pill" id="pill-install">install: —</span>
+    <span class="pill" id="pill-account">account: —</span>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab active" data-tab="setup" role="tab">Setup</button>
+  <button class="tab" data-tab="account" role="tab">Account</button>
+  <button class="tab" data-tab="join" role="tab">Join</button>
+  <button class="tab" data-tab="execute" role="tab">Execute</button>
+  <button class="tab" data-tab="players" role="tab">Players</button>
+</nav>
+
+<main>
+  <!-- ------------------------------------------------------------ setup -->
+  <section class="panel active" id="tab-setup">
+    <div class="cards">
+      <article class="card" id="card-editor">
+        <header><h3>Opiumware</h3><span class="badge" id="editor-badge">unknown</span></header>
+        <p class="path" id="editor-path">—</p>
+      </article>
+      <article class="card" id="card-roblox">
+        <header><h3>Roblox (patched)</h3><span class="badge" id="roblox-badge">unknown</span></header>
+        <p class="path" id="roblox-path">—</p>
+      </article>
+      <article class="card" id="card-api">
+        <header><h3>opom API</h3><span class="badge" id="api-badge">unknown</span></header>
+        <p class="path" id="api-path">—</p>
+      </article>
+    </div>
+
+    <div class="grid2">
+      <label class="field">Opiumware artifact
+        <input id="editor-source" placeholder="path or https://…  (blank = scan installers/)">
+      </label>
+      <label class="field">Patched Roblox artifact
+        <input id="roblox-source" placeholder="path or https://…  (blank = scan installers/)">
+      </label>
+    </div>
+    <label class="check"><input type="checkbox" id="launch-after"> Open Opiumware after install so it finishes its own first-run setup</label>
+
+    <div class="row">
+      <button class="primary" id="install-btn">Install into opom root</button>
+      <button id="start-api">Start API</button>
+      <button id="stop-api">Stop API</button>
+    </div>
+    <pre class="log" id="setup-log">Ready.</pre>
+  </section>
+
+  <!-- ---------------------------------------------------------- account -->
+  <section class="panel" id="tab-account">
+    <p class="hint">Paste the <code>.ROBLOSECURITY</code> value of a signed-in Roblox session. It is
+      stored locally with 0600 permissions, used to verify the account and to query place servers,
+      and is never written into the repository.</p>
+    <div class="row">
+      <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder=".ROBLOSECURITY value">
+      <button class="primary" id="save-token">Verify &amp; save</button>
+      <button id="clear-token">Clear</button>
+    </div>
+    <div class="card wide" id="account-card"><p class="muted">No account saved.</p></div>
+    <pre class="log" id="account-log">Ready.</pre>
+  </section>
+
+  <!-- ------------------------------------------------------------- join -->
+  <section class="panel" id="tab-join">
+    <div class="grid3">
+      <label class="field">Place ID
+        <input id="place-id" inputmode="numeric" placeholder="e.g. 2753915549">
+      </label>
+      <label class="field">Job ID (optional)
+        <input id="job-id" spellcheck="false" placeholder="server to rejoin">
+      </label>
+      <label class="field">Wait (s)
+        <input id="join-wait" type="number" min="0" max="30" value="20">
+      </label>
+    </div>
+    <div class="row">
+      <button class="primary" id="join-btn">Join game</button>
+      <button id="preview-btn">Look up place</button>
+    </div>
+    <div class="card wide" id="place-card"><p class="muted">No place selected.</p></div>
+    <pre class="log" id="join-log">Ready.</pre>
+  </section>
+
+  <!-- ---------------------------------------------------------- execute -->
+  <section class="panel" id="tab-execute">
+    <textarea id="script" spellcheck="false" placeholder="-- Luau script">local Players = game:GetService("Players")
+print("whoisauto attached:", Players.LocalPlayer.Name, game.PlaceId)</textarea>
+    <div class="grid3">
+      <label class="field">Wait (s)
+        <input id="exec-wait" type="number" min="0" max="30" value="10">
+      </label>
+      <label class="field">Timeout (s)
+        <input id="exec-timeout" type="number" min="1" max="120" value="30">
+      </label>
+      <label class="field">Options
+        <span class="check inline"><input type="checkbox" id="check-first" checked> syntax check first</span>
+      </label>
+    </div>
+    <div class="row">
+      <button class="primary" id="execute-btn">Execute</button>
+      <button id="check-btn">Check syntax</button>
+      <span class="muted" id="script-meta">0 bytes</span>
+    </div>
+    <pre class="log tall" id="exec-out">Ready.</pre>
+  </section>
+
+  <!-- ---------------------------------------------------------- players -->
+  <section class="panel" id="tab-players">
+    <div class="row spread">
+      <div class="row tight">
+        <button id="refresh-players">Refresh</button>
+        <label class="check inline"><input type="checkbox" id="auto-refresh" checked> auto refresh</label>
+      </div>
+      <span class="muted" id="players-meta">—</span>
+    </div>
+    <div id="players" class="players"></div>
+    <h3 class="section-title">Public servers</h3>
+    <div id="servers" class="servers"><p class="muted">Look up a place to list its servers.</p></div>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

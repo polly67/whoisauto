@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whoisauto"
+version = "0.1.0"
+description = "Web control panel and automation layer for the opom executor API"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = []
+
+[project.scripts]
+whoisauto = "whoisauto.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["whoisauto*"]
+
+[tool.setuptools.package-data]
+whoisauto = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

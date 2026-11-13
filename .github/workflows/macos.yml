@@ -1,0 +1,101 @@
+name: macos
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: pytest (py${{ matrix.python-version }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+
+      - name: Test
+        run: python -m pytest -q
+
+  smoke:
+    name: smoke (real opom + panel)
+    runs-on: macos-latest
+    needs: tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Start opom on the default port
+        run: |
+          python -m whoisauto start --opom-port 8765
+          python -m whoisauto status
+
+      - name: Panel answers and sees the API
+        run: |
+          python -m whoisauto serve --port 8099 --no-browser &
+          PANEL=$!
+          sleep 3
+          curl -fsS http://127.0.0.1:8099/api/state > state.json
+          python - <<'PY'
+          import json
+          state = json.load(open("state.json"))
+          assert state["service"]["running"], state
+          assert state["service"]["port"] == 8765, state["service"]
+          assert state["install"]["opom"]["present"], state["install"]
+          print("panel ok:", state["service"]["port"], state["platform"])
+          PY
+          kill $PANEL
+
+      - name: Port conflict handling
+        run: |
+          python -m whoisauto stop --opom-port 8765
+          # occupy the preferred port, then confirm the panel walks to the next free one
+          python - <<'PY' &
+          import socket, time
+          holder = socket.socket()
+          holder.bind(("127.0.0.1", 8765))
+          holder.listen(1)
+          print("holding 8765", flush=True)
+          time.sleep(90)
+          PY
+          HOLDER=$!
+          sleep 1
+          python -m whoisauto start --opom-port 8765
+          python -m whoisauto status --opom-port 8765 | tee status.json
+          python - <<'PY'
+          import json
+          status = json.load(open("status.json"))["service"]
+          assert status["running"], status
+          assert status["port"] != 8765, f"expected a fallback port, got {status['port']}"
+          print("fallback port:", status["port"])
+          PY
+          kill $HOLDER
+
+      - name: Stop
+        if: always()
+        run: |
+          python -m whoisauto stop --opom-port 8765 || true
+          python -m whoisauto stop --opom-port 8770 || true

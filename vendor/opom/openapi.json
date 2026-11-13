@@ -1,0 +1,1914 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "opom",
+    "version": "0.1.0",
+    "description": "Local macOS Opiumware control and execution API. Optional bearer authentication uses OPOM_API_TOKEN."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8765"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health and saved app availability",
+        "operationId": "get_health",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {}
+      }
+    },
+    "/status": {
+      "get": {
+        "summary": "API and execution listeners",
+        "operationId": "get_status",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {}
+      }
+    },
+    "/capabilities": {
+      "get": {
+        "summary": "API operations and function catalog",
+        "operationId": "get_capabilities",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {}
+      }
+    },
+    "/instances": {
+      "get": {
+        "summary": "Discover Player instances",
+        "operationId": "get_instances",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {}
+      }
+    },
+    "/instances/launch": {
+      "post": {
+        "summary": "Launch or reuse modified Player",
+        "operationId": "post_instances_launch",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "script": {
+                    "type": "string"
+                  },
+                  "expression": {
+                    "type": "string"
+                  },
+                  "function": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {},
+                    "maxItems": 128
+                  },
+                  "method": {
+                    "type": "boolean"
+                  },
+                  "wait": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 30
+                  },
+                  "timeout": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 300
+                  },
+                  "raw": {
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 8390,
+                    "maximum": 8420
+                  },
+                  "place_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "game_instance_id": {
+                    "type": "string"
+                  },
+                  "new_instance": {
+                    "type": "boolean"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "area": {
+                    "type": "string",
+                    "enum": [
+                      "workspace",
+                      "autoexec"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "type": "string",
+                    "enum": [
+                      "utf-8",
+                      "base64"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "capture": {
+                    "type": "boolean",
+                    "description": "Capture print/warn locally. Defaults to false for call/eval; true for execute."
+                  },
+                  "force": {
+                    "type": "boolean",
+                    "description": "For instances/stop, force termination after SIGTERM fails."
+                  }
+                },
+                "required": []
+              },
+              "example": {
+                "new_instance": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/instances/stop": {
+      "post": {
+        "summary": "Stop one verified Player",
+        "operationId": "post_instances_stop",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "script": {
+                    "type": "string"
+                  },
+                  "expression": {
+                    "type": "string"
+                  },
+                  "function": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {},
+                    "maxItems": 128
+                  },
+                  "method": {
+                    "type": "boolean"
+                  },
+                  "wait": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 30
+                  },
+                  "timeout": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 300
+                  },
+                  "raw": {
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 8390,
+                    "maximum": 8420
+                  },
+                  "place_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "game_instance_id": {
+                    "type": "string"
+                  },
+                  "new_instance": {
+                    "type": "boolean"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "area": {
+                    "type": "string",
+                    "enum": [
+                      "workspace",
+                      "autoexec"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "type": "string",
+                    "enum": [
+                      "utf-8",
+                      "base64"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "capture": {
+                    "type": "boolean",
+                    "description": "Capture print/warn locally. Defaults to false for call/eval; true for execute."
+                  },
+                  "force": {
+                    "type": "boolean",
+                    "description": "For instances/stop, force termination after SIGTERM fails."
+                  }
+                },
+                "required": []
+              },
+              "example": {
+                "port": 8391
+              }
+            }
+          }
+        }
+      }
+    },
+    "/join": {
+      "post": {
+        "summary": "Join a place and verify runtime",
+        "operationId": "post_join",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "script": {
+                    "type": "string"
+                  },
+                  "expression": {
+                    "type": "string"
+                  },
+                  "function": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {},
+                    "maxItems": 128
+                  },
+                  "method": {
+                    "type": "boolean"
+                  },
+                  "wait": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 30
+                  },
+                  "timeout": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 300
+                  },
+                  "raw": {
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 8390,
+                    "maximum": 8420
+                  },
+                  "place_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "game_instance_id": {
+                    "type": "string"
+                  },
+                  "new_instance": {
+                    "type": "boolean"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "area": {
+                    "type": "string",
+                    "enum": [
+                      "workspace",
+                      "autoexec"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "type": "string",
+                    "enum": [
+                      "utf-8",
+                      "base64"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "capture": {
+                    "type": "boolean",
+                    "description": "Capture print/warn locally. Defaults to false for call/eval; true for execute."
+                  },
+                  "force": {
+                    "type": "boolean",
+                    "description": "For instances/stop, force termination after SIGTERM fails."
+                  }
+                },
+                "required": [
+                  "place_id"
+                ]
+              },
+              "example": {
+                "place_id": 123974602339071,
+                "wait": 15
+              }
+            }
+          }
+        }
+      }
+    },
+    "/editor/open": {
+      "post": {
+        "summary": "Open Opiumware editor",
+        "operationId": "post_editor_open",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "script": {
+                    "type": "string"
+                  },
+                  "expression": {
+                    "type": "string"
+                  },
+                  "function": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {},
+                    "maxItems": 128
+                  },
+                  "method": {
+                    "type": "boolean"
+                  },
+                  "wait": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 30
+                  },
+                  "timeout": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 300
+                  },
+                  "raw": {
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 8390,
+                    "maximum": 8420
+                  },
+                  "place_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "game_instance_id": {
+                    "type": "string"
+                  },
+                  "new_instance": {
+                    "type": "boolean"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "area": {
+                    "type": "string",
+                    "enum": [
+                      "workspace",
+                      "autoexec"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "type": "string",
+                    "enum": [
+                      "utf-8",
+                      "base64"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "capture": {
+                    "type": "boolean",
+                    "description": "Capture print/warn locally. Defaults to false for call/eval; true for execute."
+                  },
+                  "force": {
+                    "type": "boolean",
+                    "description": "For instances/stop, force termination after SIGTERM fails."
+                  }
+                },
+                "required": []
+              },
+              "example": {}
+            }
+          }
+        }
+      }
+    },
+    "/runtime": {
+      "get": {
+        "summary": "Actual game and player information",
+        "operationId": "get_runtime",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {
+          "port": 8391
+        },
+        "parameters": [
+          {
+            "name": "port",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 8390,
+              "maximum": 8420
+            }
+          }
+        ]
+      }
+    },
+    "/functions": {
+      "get": {
+        "summary": "Inspect function presence",
+        "operationId": "get_functions",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "parameters": [
+          {
+            "name": "port",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 8390,
+              "maximum": 8420
+            }
+          }
+        ]
+      }
+    },
+    "/execute": {
+      "post": {
+        "summary": "Execute source and capture results",
+        "operationId": "post_execute",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "script": {
+                    "type": "string"
+                  },
+                  "expression": {
+                    "type": "string"
+                  },
+                  "function": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {},
+                    "maxItems": 128
+                  },
+                  "method": {
+                    "type": "boolean"
+                  },
+                  "wait": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 30
+                  },
+                  "timeout": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 300
+                  },
+                  "raw": {
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 8390,
+                    "maximum": 8420
+                  },
+                  "place_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "game_instance_id": {
+                    "type": "string"
+                  },
+                  "new_instance": {
+                    "type": "boolean"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "area": {
+                    "type": "string",
+                    "enum": [
+                      "workspace",
+                      "autoexec"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "type": "string",
+                    "enum": [
+                      "utf-8",
+                      "base64"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "capture": {
+                    "type": "boolean",
+                    "description": "Capture print/warn locally. Defaults to false for call/eval; true for execute."
+                  },
+                  "force": {
+                    "type": "boolean",
+                    "description": "For instances/stop, force termination after SIGTERM fails."
+                  }
+                },
+                "required": [
+                  "script"
+                ]
+              },
+              "example": {
+                "script": "print(\"hello\"); return game.PlaceId",
+                "wait": 5
+              }
+            }
+          }
+        }
+      }
+    },
+    "/execute-file": {
+      "post": {
+        "summary": "Execute a workspace source file",
+        "operationId": "post_execute-file",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "script": {
+                    "type": "string"
+                  },
+                  "expression": {
+                    "type": "string"
+                  },
+                  "function": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {},
+                    "maxItems": 128
+                  },
+                  "method": {
+                    "type": "boolean"
+                  },
+                  "wait": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 30
+                  },
+                  "timeout": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 300
+                  },
+                  "raw": {
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 8390,
+                    "maximum": 8420
+                  },
+                  "place_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "game_instance_id": {
+                    "type": "string"
+                  },
+                  "new_instance": {
+                    "type": "boolean"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "area": {
+                    "type": "string",
+                    "enum": [
+                      "workspace",
+                      "autoexec"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "type": "string",
+                    "enum": [
+                      "utf-8",
+                      "base64"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "capture": {
+                    "type": "boolean",
+                    "description": "Capture print/warn locally. Defaults to false for call/eval; true for execute."
+                  },
+                  "force": {
+                    "type": "boolean",
+                    "description": "For instances/stop, force termination after SIGTERM fails."
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              },
+              "example": {
+                "path": "example.luau",
+                "wait": 5
+              }
+            }
+          }
+        }
+      }
+    },
+    "/eval": {
+      "post": {
+        "summary": "Evaluate an expression",
+        "operationId": "post_eval",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "script": {
+                    "type": "string"
+                  },
+                  "expression": {
+                    "type": "string"
+                  },
+                  "function": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {},
+                    "maxItems": 128
+                  },
+                  "method": {
+                    "type": "boolean"
+                  },
+                  "wait": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 30
+                  },
+                  "timeout": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 300
+                  },
+                  "raw": {
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 8390,
+                    "maximum": 8420
+                  },
+                  "place_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "game_instance_id": {
+                    "type": "string"
+                  },
+                  "new_instance": {
+                    "type": "boolean"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "area": {
+                    "type": "string",
+                    "enum": [
+                      "workspace",
+                      "autoexec"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "type": "string",
+                    "enum": [
+                      "utf-8",
+                      "base64"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "capture": {
+                    "type": "boolean",
+                    "description": "Capture print/warn locally. Defaults to false for call/eval; true for execute."
+                  },
+                  "force": {
+                    "type": "boolean",
+                    "description": "For instances/stop, force termination after SIGTERM fails."
+                  }
+                },
+                "required": [
+                  "expression"
+                ]
+              },
+              "example": {
+                "expression": "game.PlaceId",
+                "wait": 5
+              }
+            }
+          }
+        }
+      }
+    },
+    "/call": {
+      "post": {
+        "summary": "Call an executor function or method",
+        "operationId": "post_call",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "script": {
+                    "type": "string"
+                  },
+                  "expression": {
+                    "type": "string"
+                  },
+                  "function": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {},
+                    "maxItems": 128
+                  },
+                  "method": {
+                    "type": "boolean"
+                  },
+                  "wait": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 30
+                  },
+                  "timeout": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 300
+                  },
+                  "raw": {
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 8390,
+                    "maximum": 8420
+                  },
+                  "place_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "game_instance_id": {
+                    "type": "string"
+                  },
+                  "new_instance": {
+                    "type": "boolean"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "area": {
+                    "type": "string",
+                    "enum": [
+                      "workspace",
+                      "autoexec"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "type": "string",
+                    "enum": [
+                      "utf-8",
+                      "base64"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "capture": {
+                    "type": "boolean",
+                    "description": "Capture print/warn locally. Defaults to false for call/eval; true for execute."
+                  },
+                  "force": {
+                    "type": "boolean",
+                    "description": "For instances/stop, force termination after SIGTERM fails."
+                  }
+                },
+                "required": [
+                  "function"
+                ]
+              },
+              "example": {
+                "function": "crypt.hash",
+                "args": [
+                  "hello",
+                  "sha256"
+                ],
+                "wait": 5
+              }
+            }
+          }
+        }
+      }
+    },
+    "/check": {
+      "post": {
+        "summary": "Syntax-check without execution",
+        "operationId": "post_check",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "script": {
+                    "type": "string"
+                  },
+                  "expression": {
+                    "type": "string"
+                  },
+                  "function": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {},
+                    "maxItems": 128
+                  },
+                  "method": {
+                    "type": "boolean"
+                  },
+                  "wait": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 30
+                  },
+                  "timeout": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 300
+                  },
+                  "raw": {
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 8390,
+                    "maximum": 8420
+                  },
+                  "place_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "game_instance_id": {
+                    "type": "string"
+                  },
+                  "new_instance": {
+                    "type": "boolean"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "area": {
+                    "type": "string",
+                    "enum": [
+                      "workspace",
+                      "autoexec"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "type": "string",
+                    "enum": [
+                      "utf-8",
+                      "base64"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "capture": {
+                    "type": "boolean",
+                    "description": "Capture print/warn locally. Defaults to false for call/eval; true for execute."
+                  },
+                  "force": {
+                    "type": "boolean",
+                    "description": "For instances/stop, force termination after SIGTERM fails."
+                  }
+                },
+                "required": [
+                  "script"
+                ]
+              },
+              "example": {
+                "script": "return 42"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs": {
+      "get": {
+        "summary": "List latest 100 jobs",
+        "operationId": "get_jobs",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {}
+      }
+    },
+    "/jobs/{id}": {
+      "get": {
+        "summary": "Job status and result",
+        "operationId": "get_jobs_id",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete history without cancelling code",
+        "operationId": "delete_jobs_id",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      }
+    },
+    "/jobs/{id}/result": {
+      "get": {
+        "summary": "Completed result or pending status",
+        "operationId": "get_jobs_id_result",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      }
+    },
+    "/files": {
+      "get": {
+        "summary": "Read files or list directories",
+        "operationId": "get_files",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {
+          "area": "workspace",
+          "path": ""
+        },
+        "parameters": [
+          {
+            "name": "area",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "workspace",
+                "autoexec"
+              ]
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "summary": "Write UTF-8 or Base64 data",
+        "operationId": "put_files",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "script": {
+                    "type": "string"
+                  },
+                  "expression": {
+                    "type": "string"
+                  },
+                  "function": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {},
+                    "maxItems": 128
+                  },
+                  "method": {
+                    "type": "boolean"
+                  },
+                  "wait": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 30
+                  },
+                  "timeout": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 300
+                  },
+                  "raw": {
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 8390,
+                    "maximum": 8420
+                  },
+                  "place_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "game_instance_id": {
+                    "type": "string"
+                  },
+                  "new_instance": {
+                    "type": "boolean"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "area": {
+                    "type": "string",
+                    "enum": [
+                      "workspace",
+                      "autoexec"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "type": "string",
+                    "enum": [
+                      "utf-8",
+                      "base64"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "capture": {
+                    "type": "boolean",
+                    "description": "Capture print/warn locally. Defaults to false for call/eval; true for execute."
+                  },
+                  "force": {
+                    "type": "boolean",
+                    "description": "For instances/stop, force termination after SIGTERM fails."
+                  }
+                },
+                "required": [
+                  "path",
+                  "content"
+                ]
+              },
+              "example": {
+                "area": "workspace",
+                "path": "example.luau",
+                "content": "return 42"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a workspace or autoexec file",
+        "operationId": "delete_files",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {
+          "area": "workspace",
+          "path": "example.luau"
+        },
+        "parameters": [
+          {
+            "name": "area",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "workspace",
+                "autoexec"
+              ]
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/settings": {
+      "get": {
+        "summary": "Recorded native setting requests",
+        "operationId": "get_settings",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "parameters": [
+          {
+            "name": "port",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 8390,
+              "maximum": 8420
+            }
+          }
+        ]
+      },
+      "post": {
+        "summary": "Send a native setting packet",
+        "operationId": "post_settings",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "script": {
+                    "type": "string"
+                  },
+                  "expression": {
+                    "type": "string"
+                  },
+                  "function": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {},
+                    "maxItems": 128
+                  },
+                  "method": {
+                    "type": "boolean"
+                  },
+                  "wait": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 30
+                  },
+                  "timeout": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 300
+                  },
+                  "raw": {
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 8390,
+                    "maximum": 8420
+                  },
+                  "place_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "game_instance_id": {
+                    "type": "string"
+                  },
+                  "new_instance": {
+                    "type": "boolean"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "area": {
+                    "type": "string",
+                    "enum": [
+                      "workspace",
+                      "autoexec"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "type": "string",
+                    "enum": [
+                      "utf-8",
+                      "base64"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "capture": {
+                    "type": "boolean",
+                    "description": "Capture print/warn locally. Defaults to false for call/eval; true for execute."
+                  },
+                  "force": {
+                    "type": "boolean",
+                    "description": "For instances/stop, force termination after SIGTERM fails."
+                  }
+                },
+                "required": [
+                  "name",
+                  "enabled"
+                ]
+              },
+              "example": {
+                "name": "SETTING_NAME",
+                "enabled": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/shutdown": {
+      "post": {
+        "summary": "Stop opom and keep Players running",
+        "operationId": "post_shutdown",
+        "responses": {
+          "200": {
+            "description": "Completed response; inspect ok and job.result.ok"
+          },
+          "202": {
+            "description": "Submitted or pending"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "503": {
+            "description": "Required app, compiler or Player unavailable"
+          },
+          "504": {
+            "description": "Delivery or job timeout"
+          }
+        },
+        "x-example-query": {},
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "script": {
+                    "type": "string"
+                  },
+                  "expression": {
+                    "type": "string"
+                  },
+                  "function": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {},
+                    "maxItems": 128
+                  },
+                  "method": {
+                    "type": "boolean"
+                  },
+                  "wait": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 30
+                  },
+                  "timeout": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 300
+                  },
+                  "raw": {
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 8390,
+                    "maximum": 8420
+                  },
+                  "place_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "game_instance_id": {
+                    "type": "string"
+                  },
+                  "new_instance": {
+                    "type": "boolean"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "area": {
+                    "type": "string",
+                    "enum": [
+                      "workspace",
+                      "autoexec"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "type": "string",
+                    "enum": [
+                      "utf-8",
+                      "base64"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "capture": {
+                    "type": "boolean",
+                    "description": "Capture print/warn locally. Defaults to false for call/eval; true for execute."
+                  },
+                  "force": {
+                    "type": "boolean",
+                    "description": "For instances/stop, force termination after SIGTERM fails."
+                  }
+                },
+                "required": []
+              },
+              "example": {}
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}
