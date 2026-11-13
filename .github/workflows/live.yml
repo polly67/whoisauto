@@ -108,26 +108,29 @@ jobs:
 
       - name: Verify the public URL
         run: |
-          # a fresh trycloudflare hostname can take a few seconds to resolve
-          status() { curl -s --max-time 25 -o /dev/null -w "%{http_code}" "$@" || true; }
+          local_code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $PANEL_TOKEN" "http://127.0.0.1:$PANEL_PORT/api/state" || true)
+          echo "local /api/state -> $local_code"
+          [ "$local_code" = "200" ] || { echo "panel is not answering locally"; exit 1; }
 
+          anon_local=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PANEL_PORT/api/state" || true)
+          echo "local anonymous -> $anon_local (expected 401)"
+          [ "$anon_local" = "401" ] || { echo "panel is exposed without auth"; exit 1; }
+
+          # A runner cannot always reach its own quick tunnel (egress or DNS),
+          # so this is a warning: the URL still works from outside.
           code=""
-          for _ in $(seq 1 12); do
-            code=$(status -H "Authorization: Bearer $PANEL_TOKEN" "$PANEL_URL/api/state")
-            echo "authenticated /api/state -> $code"
+          for _ in $(seq 1 8); do
+            code=$(curl -s --max-time 20 -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $PANEL_TOKEN" "$PANEL_URL/api/state" || true)
+            echo "public /api/state -> $code"
             if [ "$code" = "200" ]; then break; fi
             sleep 3
           done
-          [ "$code" = "200" ] || { echo "tunnel check failed"; exit 1; }
-
-          anon=""
-          for _ in $(seq 1 6); do
-            anon=$(status "$PANEL_URL/api/state")
-            echo "anonymous /api/state -> $anon (expected 401)"
-            if [ "$anon" = "401" ]; then break; fi
-            sleep 2
-          done
-          [ "$anon" = "401" ] || { echo "panel is exposed without auth"; exit 1; }
+          if [ "$code" != "200" ]; then
+            echo "::warning::runner could not reach $PANEL_URL; try it from your machine"
+            echo "--- cloudflared log ---"; tail -40 /tmp/cloudflared.log || true
+            echo "--- dns ---"; nslookup "${PANEL_URL#https://}" || true
+            echo "--- verbose curl ---"; curl -sv --max-time 15 -H "Authorization: Bearer $PANEL_TOKEN" "$PANEL_URL/api/state" 2>&1 | tail -30 || true
+          fi
 
       - name: Join place
         if: ${{ inputs.place_id != '' }}
