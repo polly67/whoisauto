@@ -72,24 +72,41 @@ jobs:
       - name: Port conflict handling
         run: |
           python -m whoisauto stop --opom-port 8765
-          # occupy the preferred port, then confirm the panel walks to the next free one
+
+          # wait for the previous listener to release the socket before reusing it
+          python - <<'PY'
+          import socket, time
+          for _ in range(100):
+              with socket.socket() as probe:
+                  try:
+                      probe.bind(("127.0.0.1", 8765))
+                  except OSError:
+                      time.sleep(0.1)
+                      continue
+              break
+          else:
+              raise SystemExit("8765 is still busy")
+          PY
+
+          # occupy 8770; the panel must fall back to 8771 instead of dying on bind
           python - <<'PY' &
           import socket, time
           holder = socket.socket()
-          holder.bind(("127.0.0.1", 8765))
+          holder.bind(("127.0.0.1", 8770))
           holder.listen(1)
-          print("holding 8765", flush=True)
-          time.sleep(90)
+          print("holding 8770", flush=True)
+          time.sleep(120)
           PY
           HOLDER=$!
           sleep 1
-          python -m whoisauto start --opom-port 8765
-          python -m whoisauto status --opom-port 8765 | tee status.json
+
+          python -m whoisauto start --opom-port 8770
+          python -m whoisauto status --opom-port 8770 | tee status.json
           python - <<'PY'
           import json
           status = json.load(open("status.json"))["service"]
           assert status["running"], status
-          assert status["port"] != 8765, f"expected a fallback port, got {status['port']}"
+          assert status["port"] == 8771, f"expected fallback 8771, got {status['port']}"
           print("fallback port:", status["port"])
           PY
           kill $HOLDER
