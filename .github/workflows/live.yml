@@ -80,7 +80,7 @@ jobs:
 
           python -m whoisauto serve --port 8080 --no-browser > /tmp/panel.log 2>&1 &
           for _ in $(seq 30); do
-            PORT=$(grep -Eo 'http://127\.0\.0\.1:[0-9]+' /tmp/panel.log | head -1 | grep -Eo '[0-9]+$')
+            PORT=$(grep -Eo 'http://127\.0\.0\.1:[0-9]+' /tmp/panel.log | head -1 | grep -Eo '[0-9]+$' || true)
             if [ -n "$PORT" ]; then break; fi
             sleep 1
           done
@@ -90,7 +90,7 @@ jobs:
           brew install cloudflared >/dev/null 2>&1 || true
           cloudflared tunnel --url "http://127.0.0.1:$PORT" --no-autoupdate > /tmp/cloudflared.log 2>&1 &
           for _ in $(seq 60); do
-            URL=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cloudflared.log | head -1)
+            URL=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cloudflared.log | head -1 || true)
             if [ -n "$URL" ]; then break; fi
             sleep 2
           done
@@ -139,7 +139,7 @@ jobs:
             echo "| --- | --- |"
             echo "| Panel | $PANEL_URL/?token=$PANEL_TOKEN |"
             echo "| Access token | \`$PANEL_TOKEN\` |"
-            echo "| opom port | $(python -m whoisauto status | python -c 'import json,sys; print(json.load(sys.stdin)["service"].get("port"))') |"
+            echo "| opom port | $(python -m whoisauto status | python -c 'import json,sys; print(json.load(sys.stdin)["service"].get("port"))' || echo unknown) |"
             echo "| Runner | $(uname -m) macOS $(sw_vers -productVersion) |"
             echo ""
             echo "Ends when this job stops (timeout ${MINUTES}m)."
