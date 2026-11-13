@@ -11,3 +11,5 @@ runtime/
 # drop Opiumware / Roblox artifacts here; never commit them
 installers/*
 !installers/.gitkeep
+
+*.egg-info/
