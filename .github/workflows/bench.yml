@@ -1,0 +1,52 @@
+name: bench
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/bench/**"
+      - ".github/workflows/bench.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    name: macOS Intel CPU + GPU
+    runs-on: macos-15-intel
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Host
+        run: |
+          uname -a
+          sw_vers
+          sysctl -n hw.model machdep.cpu.brand_string hw.physicalcpu hw.logicalcpu hw.memsize
+          system_profiler SPDisplaysDataType || true
+
+      - name: Benchmark
+        run: |
+          mkdir -p bench-out
+          python3 scripts/bench/run_bench.py --out-dir bench-out | tee bench-out/bench.md
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f bench-out/bench.md ]; then
+            cat bench-out/bench.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-macos-intel
+          path: bench-out/
