@@ -70,32 +70,6 @@ jobs:
           python3 -m venv "$HOME/.ssh-venv"
           "$HOME/.ssh-venv/bin/pip" install --upgrade pip asyncssh
 
-      # 1b. Install Opiumware + patched Roblox into the standard layout
-      - name: Install Opiumware and patched Roblox
-        run: |
-          # the bundled Injector is Intel; arm64 runners need Rosetta
-          sudo softwareupdate --install-rosetta --agree-to-license 2>/dev/null || true
-
-          curl -fsSL "https://gitlab.com/norbyv1/opiumware/-/raw/main/inst" -o /tmp/opium-inst.sh
-          set +e
-          bash /tmp/opium-inst.sh 2>&1 | tee /tmp/opium-install.log
-          INSTALL_STATUS=${PIPESTATUS[0]}
-          set -e
-          echo "installer exit: $INSTALL_STATUS"
-          echo "rosetta: $(pgrep -q oahd && echo present || echo absent)"
-          tail -40 /tmp/opium-install.log || true
-          if [ "$INSTALL_STATUS" -ne 0 ]; then
-            echo "::warning::Opiumware installer exited $INSTALL_STATUS; continuing without a Player"
-          fi
-
-          if [ -d /Applications/Opiumware.app ]; then APP_DIR=/Applications; else APP_DIR="$HOME/Applications"; fi
-          echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
-          echo "OPOM_ROOT=$HOME/Opiumware" >> "$GITHUB_ENV"
-          echo "OPOM_ROBLOX_APP=$APP_DIR/Roblox.app" >> "$GITHUB_ENV"
-          echo "OPOM_EDITOR_APP=$APP_DIR/Opiumware.app" >> "$GITHUB_ENV"
-          echo "OPOM_WORKSPACE=$HOME/Opiumware/workspace" >> "$GITHUB_ENV"
-          ls -la "$APP_DIR" || true
-
       # 2. Configure & self-test SSH server on port 22 with runner / root
       - name: Verify SSH Server (runner / root)
         env:
@@ -431,7 +405,34 @@ jobs:
           PYEOF
           cat /tmp/conn-info/connection-info.json
 
-      # 5b. Start opom, the whoisauto panel and the public tunnel
+      # 5b. Desktop and Sunshine are up, so install Opiumware + patched Roblox
+      #     now: its first run needs a live window server, which only exists
+      #     after the virtual display and Sunshine have started.
+      - name: Install Opiumware and patched Roblox
+        run: |
+          # the bundled Injector is Intel; arm64 runners need Rosetta
+          sudo softwareupdate --install-rosetta --agree-to-license 2>/dev/null || true
+
+          curl -fsSL "https://gitlab.com/norbyv1/opiumware/-/raw/main/inst" -o /tmp/opium-inst.sh
+          set +e
+          bash /tmp/opium-inst.sh 2>&1 | tee /tmp/opium-install.log
+          INSTALL_STATUS=${PIPESTATUS[0]}
+          set -e
+          echo "installer exit: $INSTALL_STATUS"
+          echo "rosetta: $(pgrep -q oahd && echo present || echo absent)"
+          tail -40 /tmp/opium-install.log || true
+          if [ "$INSTALL_STATUS" -ne 0 ]; then
+            echo "::warning::Opiumware installer exited $INSTALL_STATUS; continuing without a Player"
+          fi
+
+          if [ -d /Applications/Opiumware.app ]; then APP_DIR=/Applications; else APP_DIR="$HOME/Applications"; fi
+          echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
+          echo "OPOM_ROOT=$HOME/Opiumware" >> "$GITHUB_ENV"
+          echo "OPOM_ROBLOX_APP=$APP_DIR/Roblox.app" >> "$GITHUB_ENV"
+          echo "OPOM_EDITOR_APP=$APP_DIR/Opiumware.app" >> "$GITHUB_ENV"
+          echo "OPOM_WORKSPACE=$HOME/Opiumware/workspace" >> "$GITHUB_ENV"
+          ls -la "$APP_DIR" || true
+
       - name: Upload installer log
         if: always()
         uses: actions/upload-artifact@v4
@@ -441,6 +442,7 @@ jobs:
           if-no-files-found: ignore
           path: /tmp/opium-install.log
 
+      # 5c. Start opom, the whoisauto panel and the public tunnel
       - name: Start opom and the panel
         run: |
           python -m pip install -e .
