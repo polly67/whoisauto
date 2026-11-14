@@ -9,7 +9,7 @@ import sys
 import threading
 import webbrowser
 
-from . import installer
+from . import compiler, installer
 from .config import DEFAULT_OPOM_PORT, DEFAULT_WEB_PORT, Paths, write_json
 from .service import OpomService, ServiceError
 from .web import serve
@@ -58,6 +58,13 @@ def cmd_stop(args) -> int:
     return 0
 
 
+def cmd_build_compiler(args) -> int:
+    paths = _paths(args)
+    result = compiler.build(paths)
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def cmd_status(args) -> int:
     paths = _paths(args)
     print(json.dumps({"service": OpomService(paths, args.opom_port).status(),
@@ -69,7 +76,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="whoisauto",
                                      description="Local panel for the opom Opiumware API")
     parser.add_argument("command", nargs="?", default="serve",
-                        choices=["serve", "install", "start", "stop", "status"])
+                        choices=["serve", "install", "start", "stop", "status",
+                                 "build-compiler"])
     parser.add_argument("--port", type=int, default=DEFAULT_WEB_PORT, help="panel port")
     parser.add_argument("--opom-port", type=int, default=DEFAULT_OPOM_PORT, help="preferred opom port")
     parser.add_argument("--runtime", help="runtime directory (default: ./runtime)")
@@ -80,8 +88,9 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         return {"serve": cmd_serve, "install": cmd_install, "start": cmd_start,
-                "stop": cmd_stop, "status": cmd_status}[args.command](args)
-    except (ServiceError, installer.InstallError) as error:
+                "stop": cmd_stop, "status": cmd_status,
+                "build-compiler": cmd_build_compiler}[args.command](args)
+    except (ServiceError, installer.InstallError, compiler.CompilerError) as error:
         print(f"whoisauto: {error}", file=sys.stderr)
         return 1
 

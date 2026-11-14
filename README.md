@@ -35,7 +35,10 @@ cp -R /path/to/Roblox.app    installers/     # must contain Contents/Resources/l
 # 2. install into the opom root and open Opiumware once so it self-installs
 python -m whoisauto install --launch
 
-# 3. start the panel
+# 3. build the Luau syntax checker opom runs before every execution
+python -m whoisauto build-compiler   # ~2 min; clones Luau and compiles it
+
+# 4. start the panel
 python -m whoisauto serve            # http://127.0.0.1:8080
 ```
 
@@ -94,6 +97,7 @@ The panel binds `127.0.0.1` only.
 python -m whoisauto serve [--port 8080] [--opom-port 8765] [--no-browser]
 python -m whoisauto install [--source PATH|URL] [--roblox-source PATH|URL] [--launch]
 python -m whoisauto start | stop | status
+python -m whoisauto build-compiler   # Luau syntax checker -> runtime/state/opom/opom-compiler
 ```
 
 ## Tests and CI

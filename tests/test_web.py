@@ -202,3 +202,21 @@ def test_static_assets_stay_public(secure_panel):
     status, body = fetch_text(secure_panel, "/static/style.css")
     assert status == 200
     assert "--bg" in body
+
+
+def test_state_reports_the_compiler(panel):
+    status, payload = call(panel, "GET", "/api/state")
+    assert status == 200
+    assert payload["compiler"]["available"] is False
+    assert payload["compiler"]["path"].endswith("opom-compiler")
+
+
+def test_compiler_build_route_reports_failure(panel, monkeypatch, tmp_path):
+    from whoisauto import config
+
+    # opom_dir is a property, so patching the module constant reaches the
+    # already-running panel
+    monkeypatch.setattr(config, "OPOM_DIR", tmp_path / "absent")
+    status, payload = call(panel, "POST", "/api/compiler/build")
+    assert status == 502
+    assert payload["error"] == "compiler_build_failed"

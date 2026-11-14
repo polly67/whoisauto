@@ -77,6 +77,14 @@ function renderInstall(install) {
   pill($("pill-install"), ready, `install: ${ready ? "ready" : "incomplete"}`);
 }
 
+function renderCompiler(compiler) {
+  const value = compiler || {};
+  badge($("compiler-badge"), value.available, value.available ? "ready" : "missing");
+  $("compiler-path").textContent = value.available
+    ? value.path
+    : `${value.path || "—"} — Execute refuses scripts until this is built`;
+}
+
 function renderService(service) {
   const running = service.running;
   $("dot-api").className = "dot " + (running ? "on" : "off");
@@ -112,6 +120,7 @@ async function refreshState() {
   try {
     const state = await api("/api/state");
     renderInstall(state.install || {});
+    renderCompiler(state.compiler || {});
     renderService(state.service || {});
     renderAccount(state.account || { signed_in: false });
   } catch (error) {
@@ -155,6 +164,21 @@ async function serviceAction(path, label) {
     refreshState();
   }
 }
+
+$("build-compiler").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  log("setup-log", "Building the Luau syntax checker (clones Luau and compiles it; a few minutes)…");
+  try {
+    const result = await api("/api/compiler/build", { method: "POST", body: "{}" });
+    log("setup-log", `built ${result.path} (${result.bytes} bytes)\n${result.log || ""}`, "ok");
+  } catch (error) {
+    log("setup-log", `${error.data?.error || "error"}: ${error.message}`, "err");
+  } finally {
+    button.disabled = false;
+    refreshState();
+  }
+});
 
 $("start-api").addEventListener("click", () => serviceAction("/api/service/start", "Starting opom"));
 $("stop-api").addEventListener("click", () => serviceAction("/api/service/stop", "Stopping opom"));

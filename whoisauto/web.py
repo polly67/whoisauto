@@ -14,7 +14,7 @@ import sys
 import time
 import urllib.parse
 
-from . import installer, roblox
+from . import compiler, installer, roblox
 from .config import (DEFAULT_WEB_PORT, Paths, find_free_port, read_json, write_json)
 from .service import OpomService, ServiceError
 
@@ -74,6 +74,8 @@ class Panel:
             "darwin": sys.platform == "darwin",
             "service": self.service.status(),
             "install": installer.probe(self.paths),
+            "compiler": {"available": compiler.available(self.paths),
+                         "path": str(compiler.binary(self.paths))},
             "account": public_account(account),
             "paths": {"root": str(self.paths.root), "state": str(self.paths.state),
                       "installers": str(self.paths.installers), "log": str(self.paths.log_file)},
@@ -115,6 +117,12 @@ class Panel:
                                        roblox_source=body.get("roblox_source") or None,
                                        launch=bool(body.get("launch")))
         return result
+
+    def build_compiler(self) -> dict:
+        try:
+            return compiler.build(self.paths)
+        except compiler.CompilerError as error:
+            raise PanelError(502, "compiler_build_failed", error.message) from None
 
     def start_service(self, body: dict) -> dict:
         if body.get("port"):
@@ -312,6 +320,8 @@ class Handler(BaseHTTPRequestHandler):
             return 200, panel.players(int(place) if place else None)
         if method == "POST" and path == "/api/install":
             return 200, panel.install(body)
+        if method == "POST" and path == "/api/compiler/build":
+            return 200, panel.build_compiler()
         if method == "POST" and path == "/api/service/start":
             return 200, panel.start_service(body)
         if method == "POST" and path == "/api/service/stop":

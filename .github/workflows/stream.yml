@@ -458,6 +458,8 @@ jobs:
       - name: Start opom and the panel
         run: |
           python -m pip install -e .
+          # opom refuses /execute with compiler_missing until this exists
+          python -m whoisauto build-compiler || echo "::warning::Luau checker build failed; Execute will refuse scripts"
           python -m whoisauto start || true
 
           TOKEN=$(python -c "import secrets; print(secrets.token_urlsafe(18))")

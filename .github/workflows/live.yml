@@ -90,6 +90,8 @@ jobs:
 
       - name: Start opom
         run: |
+          # opom refuses /execute with compiler_missing until this exists
+          python -m whoisauto build-compiler || echo "::warning::Luau checker build failed; Execute will refuse scripts"
           python -m whoisauto start
           python -m whoisauto status
 
