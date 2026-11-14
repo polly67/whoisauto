@@ -412,6 +412,15 @@ jobs:
         run: |
           # the bundled Injector is Intel; arm64 runners need Rosetta
           sudo softwareupdate --install-rosetta --agree-to-license 2>/dev/null || true
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            echo "rosetta: usable"
+          else
+            echo "::warning::Rosetta is not usable; the Intel Injector will fail"
+          fi
+
+          # the installer opens with `clear` and runs under set -euo pipefail;
+          # with TERM unset that single failure aborts the whole install
+          export TERM=xterm-256color
 
           curl -fsSL "https://gitlab.com/norbyv1/opiumware/-/raw/main/inst" -o /tmp/opium-inst.sh
           set +e
@@ -432,6 +441,9 @@ jobs:
           echo "OPOM_EDITOR_APP=$APP_DIR/Opiumware.app" >> "$GITHUB_ENV"
           echo "OPOM_WORKSPACE=$HOME/Opiumware/workspace" >> "$GITHUB_ENV"
           ls -la "$APP_DIR" || true
+          for app in "$APP_DIR/Roblox.app" "$APP_DIR/Opiumware.app"; do
+            if [ -d "$app" ]; then echo "installed: $app"; else echo "::warning::missing $app"; fi
+          done
 
       - name: Upload installer log
         if: always()
