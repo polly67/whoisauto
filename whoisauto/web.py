@@ -15,6 +15,7 @@ import time
 import urllib.parse
 
 from . import compiler, installer, roblox
+from .autoexec import AutoExec
 from .config import (DEFAULT_WEB_PORT, Paths, find_free_port, read_json, write_json)
 from .service import OpomService, ServiceError
 
@@ -63,6 +64,8 @@ class Panel:
     def __init__(self, paths: Paths, service: OpomService | None = None):
         self.paths = paths
         self.service = service or OpomService(paths)
+        self.autoexec = AutoExec(paths, self.service)
+        self._last_place: int | None = None
 
     # --------------------------------------------------------------- read routes
 
@@ -77,6 +80,7 @@ class Panel:
             "compiler": {"available": compiler.available(self.paths),
                          "path": str(compiler.binary(self.paths))},
             "account": public_account(account),
+            "autoexec": self.autoexec.snapshot(include_script=False),
             "paths": {"root": str(self.paths.root), "state": str(self.paths.state),
                       "installers": str(self.paths.installers), "log": str(self.paths.log_file)},
         }
@@ -118,6 +122,19 @@ class Panel:
                                        launch=bool(body.get("launch")))
         return result
 
+    def save_autoexec(self, body: dict) -> dict:
+        try:
+            return self.autoexec.save(body)
+        except ValueError as error:
+            raise PanelError(400, "invalid_autoexec", str(error)) from None
+
+    def run_autoexec(self) -> dict:
+        job = self.autoexec.trigger("manual", self._last_place)
+        if job is None:
+            raise PanelError(400, "autoexec_disabled",
+                             "Enable auto-execute and save a script first")
+        return {"ok": True, "job": job}
+
     def build_compiler(self) -> dict:
         try:
             return compiler.build(self.paths)
@@ -154,7 +171,11 @@ class Panel:
         if status >= 400:
             raise PanelError(status, value.get("error", "join_failed"),
                              value.get("message", "Join failed"))
-        return value
+        trigger = "rejoin" if self._last_place == place_id else "join"
+        self._last_place = place_id
+        port = (value.get("instance") or {}).get("port") or payload.get("port")
+        job = self.autoexec.trigger(trigger, place_id, port)
+        return {**value, "autoexec": job}
 
     def execute(self, body: dict) -> dict:
         script = body.get("script") or ""
@@ -320,6 +341,14 @@ class Handler(BaseHTTPRequestHandler):
             return 200, panel.players(int(place) if place else None)
         if method == "POST" and path == "/api/install":
             return 200, panel.install(body)
+        if method == "GET" and path == "/api/autoexec":
+            return 200, panel.autoexec.snapshot()
+        if method == "POST" and path == "/api/autoexec":
+            return 200, panel.save_autoexec(body)
+        if method == "POST" and path == "/api/autoexec/cancel":
+            return 200, panel.autoexec.cancel()
+        if method == "POST" and path == "/api/autoexec/run":
+            return 200, panel.run_autoexec()
         if method == "POST" and path == "/api/compiler/build":
             return 200, panel.build_compiler()
         if method == "POST" and path == "/api/service/start":

@@ -101,6 +101,34 @@
       <button id="preview-btn">Look up place</button>
     </div>
     <div class="card wide" id="place-card"><p class="muted">No place selected.</p></div>
+
+    <div class="card wide" id="autoexec-card">
+      <header>
+        <h3>Auto-execute</h3>
+        <span class="badge" id="autoexec-badge">off</span>
+      </header>
+      <p class="path" id="autoexec-status">No script saved.</p>
+      <div class="grid3">
+        <label class="field">Script name
+          <input id="autoexec-name" placeholder="autoexec.luau">
+        </label>
+        <label class="field">Delay (s)
+          <input id="autoexec-delay" type="number" min="0" max="120" value="3">
+        </label>
+        <label class="field">Wait for the place (s)
+          <input id="autoexec-wait-for" type="number" min="5" max="600" value="90">
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" id="autoexec-enabled"> Run this script after every join or rejoin</label>
+      <textarea id="autoexec-script" class="short" spellcheck="false"
+        placeholder="-- runs automatically once the client is in the place"></textarea>
+      <div class="row">
+        <button class="primary" id="autoexec-save">Save auto-execute</button>
+        <button id="autoexec-run">Run now</button>
+        <button id="autoexec-cancel">Cancel</button>
+      </div>
+    </div>
+
     <pre class="log" id="join-log">Ready.</pre>
   </section>
 

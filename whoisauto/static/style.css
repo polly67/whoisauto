@@ -113,6 +113,7 @@ input[type="text"], input[type="password"], input[type="number"], input:not([typ
 }
 input:focus, textarea:focus { border-color: #3a5a8c; box-shadow: 0 0 0 3px #6ea8fe18; }
 
+.card textarea { min-height: 150px; }
 textarea { min-height: 300px; resize: vertical; line-height: 1.55; margin-bottom: 14px; tab-size: 2; }
 
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 0; }

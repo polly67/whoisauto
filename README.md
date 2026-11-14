@@ -88,8 +88,23 @@ and `/runtime`. Join waits for the place id to match and the client to report
 | POST | `/api/join` | `{place_id, game_instance_id?, wait?}` |
 | POST | `/api/check` \| `/api/execute` | `{script, wait?, timeout?, check?}` |
 | GET | `/api/players` | instances + runtime, optional `?place_id=` |
+| GET/POST | `/api/autoexec` | read (with script) / save `{enabled, script, name?, delay?, wait_for?, timeout?}` |
+| POST | `/api/autoexec/cancel` \| `/run` | cancel a queued run / queue one now |
+| POST | `/api/compiler/build` | build the Luau checker |
 
 The panel binds `127.0.0.1` only.
+
+## Auto-execute
+
+The Join tab holds one script that runs by itself after a join or rejoin. A join
+only delivers a `roblox://` URL, so the worker waits for opom to report the
+client as loaded and connected in that place before it executes; `delay` adds a
+grace period on top, `wait_for` bounds how long it waits for the place.
+
+The card shows the armed script, and while a run is pending it shows the script
+name, the place and the trigger. **Cancel** drops a run that is still waiting.
+Once the script has been handed to opom it is already in the game, so cancel
+reports that instead of pretending to stop it.
 
 ## CLI
 

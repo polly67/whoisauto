@@ -121,6 +121,7 @@ async function refreshState() {
     const state = await api("/api/state");
     renderInstall(state.install || {});
     renderCompiler(state.compiler || {});
+    if (state.autoexec) renderAutoExec(state.autoexec);
     renderService(state.service || {});
     renderAccount(state.account || { signed_in: false });
   } catch (error) {
@@ -259,6 +260,115 @@ function renderPlace(place, card) {
   card.append(title, line);
 }
 
+/* ------------------------------------------------------------ auto-execute */
+
+let autoexecLoaded = false;
+
+function renderAutoExec(snapshot) {
+  const config = snapshot.config || {};
+  const job = snapshot.job || {};
+  const last = snapshot.last || {};
+  const name = config.name || "autoexec.luau";
+  const active = job.status === "waiting" || job.status === "running";
+
+  // /api/state omits the script, so only the full snapshot may fill the form
+  if (!autoexecLoaded && typeof config.script === "string") {
+    $("autoexec-enabled").checked = Boolean(config.enabled);
+    $("autoexec-name").value = config.name || "";
+    $("autoexec-delay").value = config.delay ?? 3;
+    $("autoexec-wait-for").value = config.wait_for ?? 90;
+    $("autoexec-script").value = config.script || "";
+    autoexecLoaded = true;
+  }
+
+  let text;
+  let tone = "";
+  if (job.status === "waiting") {
+    text = `${job.script} · waiting for place ${job.place_id} (${job.trigger})`;
+    tone = "good";
+  } else if (job.status === "running") {
+    text = `${job.script} · running in place ${job.place_id}`;
+    tone = "good";
+  } else if (job.status === "done") {
+    text = `${job.script} · executed in place ${job.place_id} at ${job.finished_at}`;
+    tone = "good";
+  } else if (job.status === "cancelled") {
+    text = `${job.script} · cancelled before it ran`;
+  } else if (job.status === "timeout" || job.status === "failed") {
+    text = `${job.script} · ${job.status}: ${job.message || job.error || ""}`;
+    tone = "bad";
+  } else if (config.enabled && config.bytes) {
+    text = `${name} · armed (${config.bytes} bytes), runs on the next join or rejoin`;
+    tone = "good";
+  } else if (config.enabled) {
+    text = `${name} · enabled but empty; nothing will run`;
+    tone = "bad";
+  } else {
+    text = last.script ? `${last.script} · off (last run ${last.status})` : "Off.";
+  }
+
+  $("autoexec-status").textContent = text;
+  const label = tone === "good" ? "on" : tone === "bad" ? "error" : "off";
+  $("autoexec-badge").textContent = label;
+  $("autoexec-badge").className = "badge" + (tone ? " " + tone : "");
+  $("autoexec-cancel").disabled = !active;
+}
+
+async function loadAutoExec() {
+  try {
+    renderAutoExec(await api("/api/autoexec"));
+  } catch (error) {
+    log("join-log", `auto-execute: ${error.message}`, "err");
+  }
+}
+
+$("autoexec-save").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const result = await api("/api/autoexec", {
+      method: "POST",
+      body: JSON.stringify({
+        enabled: $("autoexec-enabled").checked,
+        name: $("autoexec-name").value.trim(),
+        delay: Number($("autoexec-delay").value || 0),
+        wait_for: Number($("autoexec-wait-for").value || 90),
+        script: $("autoexec-script").value,
+      }),
+    });
+    autoexecLoaded = false;
+    renderAutoExec(result);
+    log("join-log", result.config.enabled
+      ? `Auto-execute armed: ${result.config.name} (${result.config.bytes} bytes).`
+      : "Auto-execute disabled.", "ok");
+  } catch (error) {
+    log("join-log", `${error.data?.error || "error"}: ${error.message}`, "err");
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("autoexec-run").addEventListener("click", async () => {
+  try {
+    const result = await api("/api/autoexec/run", { method: "POST", body: "{}" });
+    log("join-log", `Queued ${result.job.script} now.`, "ok");
+    loadAutoExec();
+  } catch (error) {
+    log("join-log", `${error.data?.error || "error"}: ${error.message}`, "err");
+  }
+});
+
+$("autoexec-cancel").addEventListener("click", async () => {
+  try {
+    const result = await api("/api/autoexec/cancel", { method: "POST", body: "{}" });
+    log("join-log", result.cancelled ? "Auto-execute cancelled." : result.message,
+      result.cancelled ? "ok" : "");
+    loadAutoExec();
+  } catch (error) {
+    log("join-log", `${error.data?.error || "error"}: ${error.message}`, "err");
+  }
+});
+
 $("preview-btn").addEventListener("click", previewPlace);
 
 $("join-btn").addEventListener("click", async (event) => {
@@ -282,6 +392,10 @@ $("join-btn").addEventListener("click", async (event) => {
     log("join-log", result.joined
       ? `Joined ${placeId} on port ${result.instance?.port}.`
       : `Join delivered, not confirmed yet: ${pretty(result)}`, result.joined ? "ok" : "");
+    if (result.autoexec) {
+      log("join-log", `Auto-execute queued: ${result.autoexec.script} (${result.autoexec.trigger}).`, "ok");
+    }
+    loadAutoExec();
   } catch (error) {
     log("join-log", `${error.data?.error || "error"}: ${error.message}`, "err");
   } finally {
@@ -427,6 +541,7 @@ $("refresh-players").addEventListener("click", () => loadPlayers(true));
 const initial = (location.hash || "#setup").slice(1);
 if ($(`tab-${initial}`)) activate(initial);
 refreshState();
+loadAutoExec();
 setInterval(refreshState, 6000);
 setInterval(() => {
   if ($("tab-players").classList.contains("active")) loadPlayers();

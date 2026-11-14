@@ -1,5 +1,6 @@
 import json
 import threading
+import time
 import urllib.error
 import urllib.request
 
@@ -220,3 +221,63 @@ def test_compiler_build_route_reports_failure(panel, monkeypatch, tmp_path):
     status, payload = call(panel, "POST", "/api/compiler/build")
     assert status == 502
     assert payload["error"] == "compiler_build_failed"
+
+
+def test_autoexec_route_saves_and_returns_the_script(panel):
+    status, payload = call(panel, "POST", "/api/autoexec",
+                           {"enabled": True, "script": "print('auto')", "name": "auto.luau"})
+    assert status == 200
+    assert payload["config"]["script"] == "print('auto')"
+    assert payload["config"]["enabled"] is True
+
+    status, payload = call(panel, "GET", "/api/autoexec")
+    assert payload["config"]["name"] == "auto.luau"
+
+
+def test_state_hides_the_autoexec_script(panel):
+    call(panel, "POST", "/api/autoexec", {"enabled": True, "script": "print('secret')"})
+    status, payload = call(panel, "GET", "/api/state")
+    assert status == 200
+    assert "script" not in payload["autoexec"]["config"]
+    assert payload["autoexec"]["config"]["bytes"] == len("print('secret')")
+
+
+def test_join_queues_the_autoexec_script(panel, fake_opom):
+    call(panel, "POST", "/api/autoexec",
+         {"enabled": True, "script": "print('auto')", "delay": 0})
+    status, payload = call(panel, "POST", "/api/join", {"place_id": 42})
+    assert status == 200
+    assert payload["autoexec"]["trigger"] == "join"
+
+    deadline = time.monotonic() + 5
+    last = None
+    while time.monotonic() < deadline:
+        _, snapshot = call(panel, "GET", "/api/autoexec")
+        last = snapshot.get("last")
+        if last and last["status"] in ("done", "failed", "timeout"):
+            break
+        time.sleep(0.05)
+    assert last["status"] == "done"
+    assert any(entry[2]["script"] == "print('auto')"
+               for entry in fake_opom.calls if entry[1] == "/execute")
+
+
+def test_second_join_is_labelled_rejoin(panel):
+    call(panel, "POST", "/api/autoexec",
+         {"enabled": True, "script": "print('auto')", "delay": 30})
+    call(panel, "POST", "/api/join", {"place_id": 42})
+    status, payload = call(panel, "POST", "/api/join", {"place_id": 42})
+    assert payload["autoexec"]["trigger"] == "rejoin"
+    call(panel, "POST", "/api/autoexec/cancel")
+
+
+def test_autoexec_run_needs_a_saved_script(panel):
+    status, payload = call(panel, "POST", "/api/autoexec/run")
+    assert status == 400
+    assert payload["error"] == "autoexec_disabled"
+
+
+def test_autoexec_cancel_is_a_noop_when_idle(panel):
+    status, payload = call(panel, "POST", "/api/autoexec/cancel")
+    assert status == 200
+    assert payload["cancelled"] is False
