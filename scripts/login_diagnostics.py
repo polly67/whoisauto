@@ -14,10 +14,14 @@ try:
     print("CURRENT_ACCOUNT_VALID")
 except roblox.RobloxError as error:
     print("CURRENT_ACCOUNT_INVALID", error.status)
-    raise SystemExit(0)
-for path in ("/v1/authentication-ticket/", "/v1/authentication-ticket"):
+for variant in ("normal-client", "game-referer", "negotiated-game-referer"):
+    path = "/v1/authentication-ticket/"
     headers = {"Cookie": ".ROBLOSECURITY=" + cookie, "Content-Type": "application/json", "Accept": "application/json",
                "User-Agent": roblox.USER_AGENT, "Origin": "https://www.roblox.com", "Referer": "https://www.roblox.com/"}
+    if variant != "normal-client":
+        headers["Referer"] = "https://www.roblox.com/games"
+    if variant == "negotiated-game-referer":
+        headers["RBXAuthenticationNegotiation"] = "1"
     for attempt in range(2):
         request=urllib.request.Request("https://auth.roblox.com"+path,data=b"{}",headers=headers,method="POST")
         try: response=urllib.request.urlopen(request,timeout=15)
@@ -30,9 +34,9 @@ for path in ("/v1/authentication-ticket/", "/v1/authentication-ticket"):
             except (ValueError,AttributeError,TypeError): pass
             csrf=response.headers.get("x-csrf-token")
             ticket=bool(response.headers.get("rbx-authentication-ticket"))
-            print("TICKET_PROBE " + json.dumps({"path":path,"attempt":attempt+1,"status":response.code,"codes":codes,
+            print("TICKET_PROBE " + json.dumps({"variant":variant,"path":path,"attempt":attempt+1,"status":response.code,"codes":codes,
                 "final_url":response.geturl().split("?")[0],"csrf":bool(csrf),"ticket":ticket}))
-            if response.code == 429: raise SystemExit(0)
+            if response.code == 429 or response.headers.get("rblx-challenge-id"): raise SystemExit(0)
             if ticket: raise SystemExit(0)
             if attempt == 0 and response.code == 403 and csrf:
                 headers["X-CSRF-TOKEN"]=csrf
