@@ -114,7 +114,8 @@ def _app_path(env_name: str, root: Path, name: str) -> Path:
     candidate = root / "Apps" / name
     if candidate.exists():
         return candidate.resolve()
-    return (Path("/Applications") / name).resolve()
+    system_app = Path("/Applications") / name
+    return (system_app if system_app.exists() else candidate).resolve()
 
 
 def port_free(port: int, host: str = "127.0.0.1") -> bool:
@@ -133,7 +134,7 @@ def find_free_port(preferred: int, span: int = PORT_SPAN, host: str = "127.0.0.1
     Opom's default 8765 is a popular port for other local dev servers, so a
     hard bind failure would otherwise surface as a dead panel.
     """
-    if not 1 <= preferred <= 65535:
+    if type(preferred) is not int or not 1 <= preferred <= 65535:
         raise ConfigError(f"port must be from 1 to 65535, got {preferred}")
     last = min(preferred + span, 65535)
     for port in range(preferred, last + 1):

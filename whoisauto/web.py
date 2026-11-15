@@ -16,7 +16,7 @@ import urllib.parse
 
 from . import compiler, installer, roblox
 from .autoexec import AutoExec
-from .config import (DEFAULT_WEB_PORT, Paths, find_free_port, read_json, write_json)
+from .config import (ConfigError, DEFAULT_OPOM_PORT, DEFAULT_WEB_PORT, Paths, find_free_port, read_json, write_json)
 from .service import OpomService, ServiceError
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -31,11 +31,58 @@ class PanelError(RuntimeError):
         super().__init__(message)
 
 
+def _integer(value, name: str, low: int = 1, high: int | None = None) -> int:
+    if isinstance(value, str):
+        try:
+            value = int(value)
+        except ValueError:
+            pass
+    if type(value) is not int or value < low or (high is not None and value > high):
+        raise PanelError(400, f"invalid_{name}", f"{name} must be an integer from {low}"
+                         + (f" to {high}" if high is not None else ""))
+    return value
+
+
+def _number(value, name: str, low: float, high: float) -> float:
+    if type(value) not in (int, float) or not low <= value <= high:
+        raise PanelError(400, f"invalid_{name}", f"{name} must be a number from {low:g} to {high:g}")
+    return value
+
+
+def _boolean(body: dict, name: str, default: bool) -> bool:
+    value = body.get(name, default)
+    if type(value) is not bool:
+        raise PanelError(400, f"invalid_{name}", f"{name} must be a boolean")
+    return value
+
+
+def _script(body: dict, empty_message: str) -> str:
+    script = body.get("script", "")
+    if not isinstance(script, str):
+        raise PanelError(400, "invalid_script", "script must be text")
+    try:
+        size = len(script.encode("utf-8"))
+    except UnicodeEncodeError:
+        raise PanelError(400, "invalid_script", "script must contain valid Unicode") from None
+    if size > 4 * 1024 * 1024:
+        raise PanelError(413, "script_too_large", "script must be at most 4 MiB")
+    if not script.strip():
+        raise PanelError(400, "empty_script", empty_message)
+    return script
+
+
+def _matches(value: str, token: str) -> bool:
+    try:
+        return hmac.compare_digest(value.encode("utf-8"), token.encode("utf-8"))
+    except UnicodeEncodeError:
+        return False
+
+
 # --------------------------------------------------------------------- account
 
 def load_account(paths: Paths) -> dict | None:
     record = read_json(paths.account_file)
-    if not isinstance(record, dict) or not record.get("token"):
+    if not isinstance(record, dict) or not isinstance(record.get("token"), str) or not record["token"]:
         return None
     return record
 
@@ -53,7 +100,9 @@ def clear_account(paths: Paths) -> None:
 def public_account(record: dict | None) -> dict:
     if not record:
         return {"signed_in": False}
-    user = record.get("user") or {}
+    user = record.get("user")
+    if not isinstance(user, dict):
+        user = {}
     return {"signed_in": True, "user": user, "masked": roblox.mask(record["token"]),
             "saved_at": record.get("saved_at")}
 
@@ -66,6 +115,14 @@ class Panel:
         self.service = service or OpomService(paths)
         self.autoexec = AutoExec(paths, self.service)
         self._last_place: int | None = None
+        self._last_port: int | None = None
+
+    def _call(self, method: str, path: str, payload=None, timeout: float = 40,
+              error: str = "opom_failed", message: str = "opom request failed") -> dict:
+        status, value = self.service.call(method, path, payload, timeout=timeout)
+        if status >= 400:
+            raise PanelError(status, value.get("error", error), value.get("message", message))
+        return value
 
     # --------------------------------------------------------------- read routes
 
@@ -87,14 +144,16 @@ class Panel:
 
     def players(self, place_id: int | None = None) -> dict:
         instances = []
-        status, payload = self.service.call("GET", "/instances")
+        payload = self._call("GET", "/instances")
         raw = payload.get("instances") or []
+        if not isinstance(raw, list) or any(not isinstance(item, dict) or "port" not in item for item in raw):
+            raise PanelError(502, "api_bad_response", "opom returned invalid instances")
 
         def runtime(instance):
             try:
-                _, value = self.service.call("GET", f"/runtime?port={instance['port']}", timeout=8)
+                value = self._call("GET", f"/runtime?port={instance['port']}", timeout=8)
                 return value.get("runtime")
-            except ServiceError:
+            except (ServiceError, PanelError):
                 return None
 
         with ThreadPoolExecutor(max_workers=min(8, max(1, len(raw)))) as pool:
@@ -116,10 +175,13 @@ class Panel:
     # -------------------------------------------------------------- write routes
 
     def install(self, body: dict) -> dict:
+        for name in ("editor_source", "roblox_source"):
+            if body.get(name) is not None and not isinstance(body[name], str):
+                raise PanelError(400, "invalid_source", f"{name} must be text")
         result = installer.install_all(self.paths,
                                        editor_source=body.get("editor_source") or None,
                                        roblox_source=body.get("roblox_source") or None,
-                                       launch=bool(body.get("launch")))
+                                       launch=_boolean(body, "launch", False))
         return result
 
     def save_autoexec(self, body: dict) -> dict:
@@ -129,7 +191,7 @@ class Panel:
             raise PanelError(400, "invalid_autoexec", str(error)) from None
 
     def run_autoexec(self) -> dict:
-        job = self.autoexec.trigger("manual", self._last_place)
+        job = self.autoexec.trigger("manual", self._last_place, self._last_port)
         if job is None:
             raise PanelError(400, "autoexec_disabled",
                              "Enable auto-execute and save a script first")
@@ -139,75 +201,62 @@ class Panel:
         try:
             return compiler.build(self.paths)
         except compiler.CompilerError as error:
-            raise PanelError(502, "compiler_build_failed", error.message) from None
+            message = error.message + ("\n" + error.log if error.log else "")
+            raise PanelError(502, "compiler_build_failed", message) from None
 
     def start_service(self, body: dict) -> dict:
-        if body.get("port"):
-            self.service.preferred = int(body["port"])
+        if "port" in body:
+            self.service.preferred = _integer(body["port"], "port", high=65535)
         return self.service.start()
 
     def stop_service(self) -> dict:
+        self.autoexec.cancel()
         return self.service.stop()
 
     def set_account(self, body: dict) -> dict:
         try:
-            user = roblox.validate_token(body.get("token", ""))
+            token = roblox.normalize_token(body.get("token", ""))
+            user = roblox.validate_token(token)
         except roblox.RobloxError as error:
             raise PanelError(400 if error.code == "invalid_token" else 401, error.code, error.message) from None
-        record = save_account(self.paths, roblox.normalize_token(body["token"]), user)
+        record = save_account(self.paths, token, user)
         return {"ok": True, "account": public_account(record)}
 
     def join(self, body: dict) -> dict:
-        try:
-            place_id = int(body.get("place_id"))
-        except (TypeError, ValueError):
-            raise PanelError(400, "invalid_place_id", "place_id must be a number") from None
-        payload = {"place_id": place_id, "wait": body.get("wait", 20)}
+        place_id = _integer(body.get("place_id"), "place_id")
+        payload = {"place_id": place_id, "wait": _number(body.get("wait", 20), "wait", 0, 30)}
         if body.get("game_instance_id"):
             payload["game_instance_id"] = str(body["game_instance_id"])
-        if body.get("port"):
-            payload["port"] = int(body["port"])
-        status, value = self.service.call("POST", "/join", payload, timeout=45)
-        if status >= 400:
-            raise PanelError(status, value.get("error", "join_failed"),
-                             value.get("message", "Join failed"))
+        if "port" in body:
+            payload["port"] = _integer(body["port"], "port", high=65535)
+        value = self._call("POST", "/join", payload, timeout=45,
+                           error="join_failed", message="Join failed")
         trigger = "rejoin" if self._last_place == place_id else "join"
         self._last_place = place_id
         port = (value.get("instance") or {}).get("port") or payload.get("port")
+        self._last_port = port
         job = self.autoexec.trigger(trigger, place_id, port)
         return {**value, "autoexec": job}
 
     def execute(self, body: dict) -> dict:
-        script = body.get("script") or ""
-        if not script.strip():
-            raise PanelError(400, "empty_script", "Write or paste a script first")
-        if body.get("check", True):
-            status, checked = self.service.call("POST", "/check", {"script": script})
-            if status >= 400:
-                raise PanelError(status, checked.get("error", "check_failed"),
-                                 checked.get("message", "Syntax check failed"))
+        script = _script(body, "Write or paste a script first")
+        payload = {"script": script, "wait": _number(body.get("wait", 10), "wait", 0, 30),
+                   "timeout": _number(body.get("timeout", 30), "timeout", 0.1, 300),
+                   "capture": _boolean(body, "capture", True)}
+        if "port" in body:
+            payload["port"] = _integer(body["port"], "port", high=65535)
+        if _boolean(body, "check", True):
+            checked = self._call("POST", "/check", {"script": script},
+                                 error="check_failed", message="Syntax check failed")
             if not checked.get("ok"):
                 return {"ok": False, "error": "syntax_error", "check": checked}
-        payload = {"script": script, "wait": body.get("wait", 10),
-                   "timeout": body.get("timeout", 30), "capture": body.get("capture", True)}
-        if body.get("port"):
-            payload["port"] = int(body["port"])
-        status, value = self.service.call("POST", "/execute", payload,
-                                          timeout=float(payload["wait"]) + 30)
-        if status >= 400:
-            raise PanelError(status, value.get("error", "execute_failed"),
-                             value.get("message", "Execution failed"))
-        return value
+        return self._call("POST", "/execute", payload, timeout=payload["wait"] + 30,
+                          error="execute_failed", message="Execution failed")
 
     def check(self, body: dict) -> dict:
-        script = body.get("script") or ""
-        if not script.strip():
-            raise PanelError(400, "empty_script", "Nothing to check")
-        status, value = self.service.call("POST", "/check", {"script": script})
-        if status >= 400:
-            raise PanelError(status, value.get("error", "check_failed"),
-                             value.get("message", "Syntax check failed"))
-        return value
+        script = _script(body, "Nothing to check")
+        return self._call("POST", "/check", {"script": script},
+                          error="check_failed", message="Syntax check failed")
 
 
 # ---------------------------------------------------------------------- server
@@ -216,12 +265,27 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "whoisauto/0.1"
     protocol_version = "HTTP/1.1"
 
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(30)
+
     @property
     def panel(self) -> Panel:
         return self.server.panel  # type: ignore[attr-defined]
 
     def log_message(self, fmt, *args):  # keep the console readable
-        sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
+        message = fmt % args
+        try:
+            parsed = urllib.parse.urlsplit(self.path)
+            query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+            if any(key == "token" for key, _ in query):
+                safe_query = urllib.parse.urlencode([(key, "REDACTED" if key == "token" else value)
+                                                     for key, value in query])
+                safe_path = urllib.parse.urlunsplit(parsed._replace(query=safe_query))
+                message = message.replace(self.path, safe_path)
+        except ValueError:
+            pass
+        sys.stderr.write("%s - %s\n" % (self.address_string(), message))
 
     # ------------------------------------------------------------------ plumbing
 
@@ -251,6 +315,8 @@ class Handler(BaseHTTPRequestHandler):
         self.close_connection = True
 
     def read_body(self) -> dict:
+        if self.headers.get("Transfer-Encoding"):
+            raise PanelError(400, "invalid_encoding", "Send a Content-Length header instead of Transfer-Encoding")
         lengths = self.headers.get_all("Content-Length", [])
         if len(lengths) > 1:
             raise PanelError(400, "invalid_length", "Send one Content-Length header")
@@ -263,10 +329,14 @@ class Handler(BaseHTTPRequestHandler):
         if length < 0 or length > BODY_LIMIT:
             raise PanelError(413, "body_too_large", "Request body is too large")
         raw = self.rfile.read(length)
+        if len(raw) != length:
+            raise PanelError(400, "invalid_body", "Request body is incomplete")
         if not raw:
             return {}
         try:
-            body = json.loads(raw.decode())
+            def invalid_constant(value):
+                raise ValueError(f"Invalid JSON number: {value}")
+            body = json.loads(raw.decode(), parse_constant=invalid_constant)
         except (ValueError, UnicodeDecodeError):
             raise PanelError(400, "invalid_json", "Send valid UTF-8 JSON") from None
         if not isinstance(body, dict):
@@ -277,16 +347,16 @@ class Handler(BaseHTTPRequestHandler):
         token = self.server.access_token
         if not token or path.startswith("/static/"):
             return True
-        if hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + token):
+        if _matches(self.headers.get("Authorization", ""), "Bearer " + token):
             return True
         for part in self.headers.get("Cookie", "").split(";"):
             name, _, value = part.strip().partition("=")
-            if name == "whoisauto_token" and hmac.compare_digest(value, token):
+            if name == "whoisauto_token" and _matches(value, token):
                 return True
         return False
 
     def grant(self, token: str) -> None:
-        if not hmac.compare_digest(token, self.server.access_token):
+        if not _matches(token, self.server.access_token):
             raise PanelError(401, "unauthorized", "Bad access token")
         self.send_response(302)
         self.send_header("Location", "/")
@@ -316,8 +386,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(error.status, {"ok": False, "error": error.code, "message": error.message})
         except (ServiceError, installer.InstallError) as error:
             code = getattr(error, "code", "install_failed")
-            self.send_json(503 if code in ("api_down", "api_unreachable") else 400,
+            status = 502 if code == "api_bad_response" else 503 if code in ("api_down", "api_unreachable", "api_timeout") else 400
+            self.send_json(status,
                            {"ok": False, "error": code, "message": str(error)})
+        except ConfigError as error:
+            self.send_json(400, {"ok": False, "error": "invalid_port", "message": str(error)})
+        except TimeoutError:
+            self.send_json(408, {"ok": False, "error": "request_timeout", "message": "Request timed out"})
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception as error:  # keep the panel alive on unexpected input
@@ -338,7 +413,7 @@ class Handler(BaseHTTPRequestHandler):
             return 200, panel.state()
         if method == "GET" and path == "/api/players":
             place = query.get("place_id")
-            return 200, panel.players(int(place) if place else None)
+            return 200, panel.players(_integer(place, "place_id") if place else None)
         if method == "POST" and path == "/api/install":
             return 200, panel.install(body)
         if method == "GET" and path == "/api/autoexec":
@@ -392,10 +467,14 @@ class Server(ThreadingHTTPServer):
         self.server_name = "localhost"
         self.server_port = self.server_address[1]
 
+    def server_close(self):
+        self.panel.autoexec.close()
+        super().server_close()
+
 
 def serve(paths: Paths, port: int = DEFAULT_WEB_PORT, opom_port: int | None = None) -> Server:
     paths.ensure()
-    service = OpomService(paths, opom_port or 8765)
+    service = OpomService(paths, DEFAULT_OPOM_PORT if opom_port is None else opom_port)
     panel = Panel(paths, service)
     bound = find_free_port(port)
     return Server(("127.0.0.1", bound), panel, os.environ.get("WHOISAUTO_ACCESS_TOKEN", ""))

@@ -10,7 +10,7 @@ import threading
 import webbrowser
 
 from . import compiler, installer
-from .config import DEFAULT_OPOM_PORT, DEFAULT_WEB_PORT, Paths, write_json
+from .config import ConfigError, DEFAULT_OPOM_PORT, DEFAULT_WEB_PORT, Paths, write_json
 from .service import OpomService, ServiceError
 from .web import serve
 
@@ -90,7 +90,7 @@ def main(argv=None) -> int:
         return {"serve": cmd_serve, "install": cmd_install, "start": cmd_start,
                 "stop": cmd_stop, "status": cmd_status,
                 "build-compiler": cmd_build_compiler}[args.command](args)
-    except (ServiceError, installer.InstallError, compiler.CompilerError) as error:
+    except (ConfigError, ServiceError, installer.InstallError, compiler.CompilerError, OSError) as error:
         print(f"whoisauto: {error}", file=sys.stderr)
         return 1
 

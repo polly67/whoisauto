@@ -1,6 +1,6 @@
 # whoisauto
 
-A local control panel that drives the [opom](../vendor/opom) Opiumware API from a browser:
+A local control panel that drives the [opom](vendor/opom) Opiumware API from a browser:
 install the executor into an opom root, start the API on a port that is actually free,
 paste an account token, join a place, run a script, and watch the Player status.
 
@@ -55,8 +55,11 @@ runtime/opom-root/Apps/Roblox.app        # verified to carry libOpiumware.dylib
 runtime/opom-root/Data/workspace
 ```
 
-A bundle is verified *before* it is copied, so a stock Roblox app is rejected without
-leaving a broken half-install. `--launch` opens Opiumware once, which is what lets it
+A bundle is verified before copying and again in a staging directory. Reinstalls keep
+the previous bundle until the staged copy is ready, and restore it if replacement fails.
+Fresh installs use the runtime root; existing system apps and explicit app overrides
+remain discoverable. Mounted disk images are detached even if verification fails.
+`--launch` opens Opiumware once, which is what lets it
 finish its own first-run setup.
 
 **Service** (`whoisauto/service.py`) owns the opom process. Port 8765 is a common
@@ -106,6 +109,11 @@ name, the place and the trigger. **Cancel** drops a run that is still waiting.
 Once the script has been handed to opom it is already in the game, so cancel
 reports that instead of pretending to stop it.
 
+Disabling auto-execute, stopping the API, or closing the panel cancels a waiting run.
+Rejoins retire the previous waiting worker. The delay starts after the place loads;
+the worker verifies the place again before dispatch. Execution status follows the
+remote job through completion, failure, or timeout. A timeout cannot stop native code.
+
 ## CLI
 
 ```sh
@@ -118,12 +126,15 @@ python -m whoisauto build-compiler   # Luau syntax checker -> runtime/state/opom
 ## Tests and CI
 
 ```sh
+python -m pip install -e '.[test]'
 python -m pytest -q
+node --test tests/test_app.js   # Node.js 22+; no npm dependencies
+bash -n scripts/ci/install_apps.sh scripts/ci/start_panel.sh scripts/ci/check_panel.sh
 ```
 
 The suite uses a fake opom server, so it exercises port reuse, proxying, token storage
 and the install verification without needing a Player. `.github/workflows/macos.yml`
-runs it on `macos-latest` for Python 3.11 and 3.13, then smoke-tests the real opom
+runs it on `macos-latest` with Python 3.12 and Node.js 22, then smoke-tests the real opom
 server and the panel on the runner.
 
 ## Notes
@@ -134,8 +145,8 @@ server and the panel on the runner.
 
 ## Live panel over cloudflared
 
-`.github/workflows/live.yml` boots a `macos-latest` runner, installs the apps (when you
-pass download URLs), starts opom and the panel, and publishes it through a cloudflared
+`.github/workflows/live.yml` boots a `macos-latest` runner, runs the Opiumware installer,
+starts opom and the panel, and publishes it through a cloudflared
 quick tunnel. It prints the URL and a generated access token to the job summary.
 
 Because the tunnel is public, the panel refuses every `/api/*` request unless the
@@ -145,3 +156,7 @@ localhost-only use.
 
 The job keeps the panel alive for the requested number of minutes and dies with the
 runner — it is not a permanent deployment.
+
+The live and streaming workflows share `scripts/ci/` helpers for installing apps,
+starting the panel, and checking the tunnel. Startup verifies the new panel's PID and
+local authentication before opening a tunnel. The live duration must be 1–350 minutes.

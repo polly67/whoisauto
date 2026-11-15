@@ -157,8 +157,10 @@ button.primary:hover { background: #2b4c82; }
   margin: 14px 0 0;
 }
 .log.tall { min-height: 220px; max-height: 420px; }
-.log .ok { color: var(--good); }
-.log .err { color: var(--bad); }
+.log.ok { color: var(--good); }
+.log.err { color: var(--bad); }
+
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 .players { display: grid; gap: 10px; }
 .player {
@@ -190,6 +192,10 @@ button.primary:hover { background: #2b4c82; }
 .server b { color: var(--text); font-weight: 500; }
 
 @media (max-width: 760px) {
+  .topbar { flex-direction: column; align-items: flex-start; padding: 14px; }
+  .tabs { overflow-x: auto; padding-left: 10px; }
+  .tab { flex-shrink: 0; }
+  .cards { grid-template-columns: 1fr; }
   .grid2, .grid3 { grid-template-columns: 1fr; }
   .player { grid-template-columns: 1fr 1fr; }
   main { padding: 14px; }

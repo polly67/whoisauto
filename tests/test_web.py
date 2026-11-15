@@ -281,3 +281,67 @@ def test_autoexec_cancel_is_a_noop_when_idle(panel):
     status, payload = call(panel, "POST", "/api/autoexec/cancel")
     assert status == 200
     assert payload["cancelled"] is False
+
+
+@pytest.mark.parametrize("method,path,body,code", [
+    ("GET", "/api/players?place_id=oops", None, "invalid_place_id"),
+    ("POST", "/api/join", {"place_id": 0}, "invalid_place_id"),
+    ("POST", "/api/join", {"place_id": 1.5}, "invalid_place_id"),
+    ("POST", "/api/join", {"place_id": True}, "invalid_place_id"),
+    ("POST", "/api/join", {"place_id": 42, "wait": "slow"}, "invalid_wait"),
+    ("POST", "/api/execute", {"script": 123}, "invalid_script"),
+    ("POST", "/api/execute", {"script": "print('hi')", "timeout": "slow"}, "invalid_timeout"),
+    ("POST", "/api/execute", {"script": "print('hi')", "port": "oops"}, "invalid_port"),
+    ("POST", "/api/account", {"token": 123}, "invalid_token"),
+    ("POST", "/api/autoexec", {"name": 123}, "invalid_autoexec"),
+])
+def test_invalid_input_returns_client_error(panel, method, path, body, code):
+    status, payload = call(panel, method, path, body)
+    assert status == 400
+    assert payload["error"] == code
+
+
+def test_players_propagates_upstream_error(paths, monkeypatch):
+    service = OpomService(paths)
+    monkeypatch.setattr(service, "call", lambda *args, **kwargs: (
+        403, {"error": "unauthorized", "message": "Access denied"}))
+    from whoisauto.web import PanelError
+    with pytest.raises(PanelError, match="Access denied"):
+        Panel(paths, service).players()
+
+
+def test_unicode_access_token_is_rejected_cleanly(secure_panel):
+    status, payload = call(secure_panel, "GET", "/?token=%C3%A9")
+    assert status == 401
+    assert payload["error"] == "unauthorized"
+
+
+def test_panel_log_redacts_access_token(secure_panel, capsys):
+    opener = urllib.request.build_opener(_NoRedirect)
+    with pytest.raises(urllib.error.HTTPError):
+        opener.open(secure_panel + "/?token=s3cret", timeout=10)
+    assert "s3cret" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("body", [{"script": "\ud800"}, {"script": "print('hi')", "name": "\ud800"}])
+def test_autoexec_rejects_invalid_unicode(panel, body):
+    status, payload = call(panel, "POST", "/api/autoexec", body)
+    assert status == 400
+    assert payload["error"] == "invalid_autoexec"
+
+
+def test_run_now_targets_the_last_joined_instance(paths, monkeypatch):
+    service = OpomService(paths)
+    monkeypatch.setattr(service, "call", lambda *args, **kwargs: (
+        200, {"ok": True, "instance": {"port": 8391}}))
+    panel = Panel(paths, service)
+    calls = []
+
+    def trigger(reason, place_id, port=None):
+        calls.append((reason, place_id, port))
+        return {"id": "test"}
+
+    monkeypatch.setattr(panel.autoexec, "trigger", trigger)
+    panel.join({"place_id": 42, "port": 8391})
+    panel.run_autoexec()
+    assert calls == [("join", 42, 8391), ("manual", 42, 8391)]

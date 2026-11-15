@@ -1,21 +1,50 @@
 const $ = (id) => document.getElementById(id);
 
 async function api(path, options = {}) {
-  const init = { headers: { "Content-Type": "application/json" }, ...options };
-  const response = await fetch(path, init);
-  let data;
+  const { timeout = 70000, ...requestOptions } = options;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
   try {
-    data = await response.json();
-  } catch {
-    data = { ok: false, error: "bad_response", message: response.statusText };
-  }
-  if (!response.ok) {
-    const error = new Error(data.message || response.statusText);
-    error.data = data;
-    error.status = response.status;
+    const response = await fetch(path, {
+      headers: { "Content-Type": "application/json" }, ...requestOptions, signal: controller.signal,
+    });
+    let data;
+    try {
+      data = await response.json();
+      if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid JSON object");
+    } catch {
+      throw new Error(`Invalid response from the panel (HTTP ${response.status}).`);
+    }
+    if (!response.ok) {
+      const error = new Error(data.message || response.statusText);
+      error.data = data;
+      error.status = response.status;
+      throw error;
+    }
+    return data;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("The request timed out. The action may still finish; check its status before retrying.");
+    }
     throw error;
+  } finally {
+    clearTimeout(timer);
   }
-  return data;
+}
+
+async function action(ids, target, pending, run, after = () => {}) {
+  const buttons = (Array.isArray(ids) ? ids : [ids]).map($);
+  if (buttons.some((button) => button.dataset.busy === "true")) return;
+  buttons.forEach((button) => { button.disabled = true; button.dataset.busy = "true"; });
+  if (pending) log(target, pending);
+  try {
+    await run();
+  } catch (error) {
+    log(target, `${error.data?.error || "error"}: ${error.message}`, "err");
+  } finally {
+    buttons.forEach((button) => { button.disabled = false; delete button.dataset.busy; });
+    after();
+  }
 }
 
 function log(target, message, kind = "") {
@@ -48,17 +77,35 @@ function pretty(value) {
 function activate(tab) {
   document.querySelectorAll(".tab").forEach((button) => {
     button.classList.toggle("active", button.dataset.tab === tab);
+    button.setAttribute("aria-selected", String(button.dataset.tab === tab));
+    button.tabIndex = button.dataset.tab === tab ? 0 : -1;
   });
   document.querySelectorAll(".panel").forEach((panel) => {
     panel.classList.toggle("active", panel.id === `tab-${tab}`);
   });
-  if (tab === "players") loadPlayers();
+  if (tab === "players") loadPlayers(true);
 }
 
 document.querySelectorAll(".tab").forEach((button) => {
+  button.id = `tab-${button.dataset.tab}-button`;
+  button.setAttribute("aria-controls", `tab-${button.dataset.tab}`);
+  const panel = $(`tab-${button.dataset.tab}`);
+  panel.setAttribute("role", "tabpanel");
+  panel.setAttribute("aria-labelledby", button.id);
   button.addEventListener("click", () => {
     activate(button.dataset.tab);
     history.replaceState(null, "", `#${button.dataset.tab}`);
+  });
+  button.addEventListener("keydown", (event) => {
+    const tabs = [...document.querySelectorAll(".tab")];
+    const index = tabs.indexOf(button);
+    const next = event.key === "ArrowRight" ? (index + 1) % tabs.length
+      : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length
+      : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null;
+    if (next === null) return;
+    event.preventDefault();
+    tabs[next].focus();
+    tabs[next].click();
   });
 });
 
@@ -116,7 +163,10 @@ function renderAccount(account) {
   pill($("pill-account"), true, `account: ${user.name}`);
 }
 
+let stateBusy = false;
 async function refreshState() {
+  if (stateBusy) return;
+  stateBusy = true;
   try {
     const state = await api("/api/state");
     renderInstall(state.install || {});
@@ -126,19 +176,20 @@ async function refreshState() {
     renderAccount(state.account || { signed_in: false });
   } catch (error) {
     pill($("pill-api"), false, "api: panel unreachable");
+    $("dot-api").className = "dot off";
     console.error(error);
+  } finally {
+    stateBusy = false;
   }
 }
 
 /* ------------------------------------------------------------------ setup */
 
-$("install-btn").addEventListener("click", async (event) => {
-  const button = event.currentTarget;
-  button.disabled = true;
-  log("setup-log", "Installing Opiumware and the patched Roblox app into the opom root…");
-  try {
+$("install-btn").addEventListener("click", () => action("install-btn", "setup-log",
+  "Installing Opiumware and the patched Roblox app into the opom root…", async () => {
     const result = await api("/api/install", {
       method: "POST",
+      timeout: 1800000,
       body: JSON.stringify({
         editor_source: $("editor-source").value.trim(),
         roblox_source: $("roblox-source").value.trim(),
@@ -146,56 +197,33 @@ $("install-btn").addEventListener("click", async (event) => {
       }),
     });
     log("setup-log", pretty(result), result.ok ? "ok" : "err");
-  } catch (error) {
-    log("setup-log", `${error.data?.error || "error"}: ${error.message}`, "err");
-  } finally {
-    button.disabled = false;
-    refreshState();
-  }
-});
+  }, refreshState));
 
 async function serviceAction(path, label) {
-  log("setup-log", `${label}…`);
-  try {
+  return action(["start-api", "stop-api"], "setup-log", `${label}…`, async () => {
     const result = await api(path, { method: "POST", body: "{}" });
     log("setup-log", pretty(result), "ok");
-  } catch (error) {
-    log("setup-log", `${error.data?.error || "error"}: ${error.message}`, "err");
-  } finally {
-    refreshState();
-  }
+  }, refreshState);
 }
 
-$("build-compiler").addEventListener("click", async (event) => {
-  const button = event.currentTarget;
-  button.disabled = true;
-  log("setup-log", "Building the Luau syntax checker (clones Luau and compiles it; a few minutes)…");
-  try {
-    const result = await api("/api/compiler/build", { method: "POST", body: "{}" });
+$("build-compiler").addEventListener("click", () => action("build-compiler", "setup-log",
+  "Building the Luau syntax checker (clones Luau and compiles it; a few minutes)…", async () => {
+    const result = await api("/api/compiler/build", { method: "POST", body: "{}", timeout: 1230000 });
     log("setup-log", `built ${result.path} (${result.bytes} bytes)\n${result.log || ""}`, "ok");
-  } catch (error) {
-    log("setup-log", `${error.data?.error || "error"}: ${error.message}`, "err");
-  } finally {
-    button.disabled = false;
-    refreshState();
-  }
-});
+  }, refreshState));
 
 $("start-api").addEventListener("click", () => serviceAction("/api/service/start", "Starting opom"));
 $("stop-api").addEventListener("click", () => serviceAction("/api/service/stop", "Stopping opom"));
 
 /* ---------------------------------------------------------------- account */
 
-$("save-token").addEventListener("click", async (event) => {
-  const button = event.currentTarget;
+$("save-token").addEventListener("click", () => {
   const token = $("token").value.trim();
   if (!token) {
     log("account-log", "Paste a token first.", "err");
     return;
   }
-  button.disabled = true;
-  log("account-log", "Verifying token with Roblox…");
-  try {
+  return action(["save-token", "clear-token"], "account-log", "Verifying token with Roblox…", async () => {
     const result = await api("/api/account", {
       method: "POST",
       body: JSON.stringify({ token }),
@@ -203,22 +231,15 @@ $("save-token").addEventListener("click", async (event) => {
     $("token").value = "";
     log("account-log", `Signed in as ${result.account.user.name} (${result.account.user.id}).`, "ok");
     renderAccount(result.account);
-  } catch (error) {
-    log("account-log", `${error.data?.error || "error"}: ${error.message}`, "err");
-  } finally {
-    button.disabled = false;
-  }
+  });
 });
 
-$("clear-token").addEventListener("click", async () => {
-  try {
+$("clear-token").addEventListener("click", () => action(["save-token", "clear-token"],
+  "account-log", "Clearing saved account…", async () => {
     const result = await api("/api/account", { method: "DELETE" });
     renderAccount(result.account);
     log("account-log", "Token removed from local state.", "ok");
-  } catch (error) {
-    log("account-log", error.message, "err");
-  }
-});
+  }));
 
 /* ------------------------------------------------------------------- join */
 
@@ -263,13 +284,16 @@ function renderPlace(place, card) {
 /* ------------------------------------------------------------ auto-execute */
 
 let autoexecLoaded = false;
+let autoexecRevision = 0;
+["autoexec-script", "autoexec-name", "autoexec-enabled", "autoexec-delay", "autoexec-wait-for"].forEach((id) => {
+  $(id).addEventListener("input", () => { autoexecLoaded = true; autoexecRevision++; });
+});
 
 function renderAutoExec(snapshot) {
   const config = snapshot.config || {};
   const job = snapshot.job || {};
   const last = snapshot.last || {};
   const name = config.name || "autoexec.luau";
-  const active = job.status === "waiting" || job.status === "running";
 
   // /api/state omits the script, so only the full snapshot may fill the form
   if (!autoexecLoaded && typeof config.script === "string") {
@@ -311,7 +335,7 @@ function renderAutoExec(snapshot) {
   const label = tone === "good" ? "on" : tone === "bad" ? "error" : "off";
   $("autoexec-badge").textContent = label;
   $("autoexec-badge").className = "badge" + (tone ? " " + tone : "");
-  $("autoexec-cancel").disabled = !active;
+  $("autoexec-cancel").disabled = job.status !== "waiting" || $("autoexec-cancel").dataset.busy === "true";
 }
 
 async function loadAutoExec() {
@@ -322,10 +346,9 @@ async function loadAutoExec() {
   }
 }
 
-$("autoexec-save").addEventListener("click", async (event) => {
-  const button = event.currentTarget;
-  button.disabled = true;
-  try {
+$("autoexec-save").addEventListener("click", () => action("autoexec-save", "join-log",
+  "Saving auto-execute…", async () => {
+    const revision = autoexecRevision;
     const result = await api("/api/autoexec", {
       method: "POST",
       body: JSON.stringify({
@@ -336,55 +359,39 @@ $("autoexec-save").addEventListener("click", async (event) => {
         script: $("autoexec-script").value,
       }),
     });
-    autoexecLoaded = false;
+    if (revision === autoexecRevision) autoexecLoaded = false;
     renderAutoExec(result);
     log("join-log", result.config.enabled
       ? `Auto-execute armed: ${result.config.name} (${result.config.bytes} bytes).`
       : "Auto-execute disabled.", "ok");
-  } catch (error) {
-    log("join-log", `${error.data?.error || "error"}: ${error.message}`, "err");
-  } finally {
-    button.disabled = false;
-  }
-});
+  }));
 
-$("autoexec-run").addEventListener("click", async () => {
-  try {
+$("autoexec-run").addEventListener("click", () => action("autoexec-run", "join-log",
+  "Queuing auto-execute…", async () => {
     const result = await api("/api/autoexec/run", { method: "POST", body: "{}" });
     log("join-log", `Queued ${result.job.script} now.`, "ok");
-    loadAutoExec();
-  } catch (error) {
-    log("join-log", `${error.data?.error || "error"}: ${error.message}`, "err");
-  }
-});
+  }, loadAutoExec));
 
-$("autoexec-cancel").addEventListener("click", async () => {
-  try {
+$("autoexec-cancel").addEventListener("click", () => action("autoexec-cancel", "join-log",
+  "Cancelling queued script…", async () => {
     const result = await api("/api/autoexec/cancel", { method: "POST", body: "{}" });
     log("join-log", result.cancelled ? "Auto-execute cancelled." : result.message,
       result.cancelled ? "ok" : "");
-    loadAutoExec();
-  } catch (error) {
-    log("join-log", `${error.data?.error || "error"}: ${error.message}`, "err");
-  }
-});
+  }, loadAutoExec));
 
 $("preview-btn").addEventListener("click", previewPlace);
 
-$("join-btn").addEventListener("click", async (event) => {
-  const button = event.currentTarget;
+$("join-btn").addEventListener("click", () => {
   const placeId = $("place-id").value.trim();
   if (!placeId) {
     log("join-log", "Enter a place id first.", "err");
     return;
   }
-  button.disabled = true;
-  log("join-log", `Joining place ${placeId}…`);
-  try {
+  return action("join-btn", "join-log", `Joining place ${placeId}…`, async () => {
     const result = await api("/api/join", {
       method: "POST",
       body: JSON.stringify({
-        place_id: Number(placeId),
+        place_id: placeId,
         game_instance_id: $("job-id").value.trim() || undefined,
         wait: Number($("join-wait").value || 20),
       }),
@@ -395,12 +402,7 @@ $("join-btn").addEventListener("click", async (event) => {
     if (result.autoexec) {
       log("join-log", `Auto-execute queued: ${result.autoexec.script} (${result.autoexec.trigger}).`, "ok");
     }
-    loadAutoExec();
-  } catch (error) {
-    log("join-log", `${error.data?.error || "error"}: ${error.message}`, "err");
-  } finally {
-    button.disabled = false;
-  }
+  }, loadAutoExec);
 });
 
 /* ---------------------------------------------------------------- execute */
@@ -419,8 +421,8 @@ async function runScript(checkOnly) {
     return;
   }
   const endpoint = checkOnly ? "/api/check" : "/api/execute";
-  log("exec-out", checkOnly ? "Checking syntax…" : "Executing…");
-  try {
+  return action(["execute-btn", "check-btn"], "exec-out",
+    checkOnly ? "Checking syntax…" : "Executing…", async () => {
     const result = await api(endpoint, {
       method: "POST",
       body: JSON.stringify({
@@ -435,9 +437,7 @@ async function runScript(checkOnly) {
       return;
     }
     log("exec-out", pretty(result), result.ok ? "ok" : "err");
-  } catch (error) {
-    log("exec-out", `${error.data?.error || "error"}: ${error.message}`, "err");
-  }
+  });
 }
 
 $("execute-btn").addEventListener("click", () => runScript(false));
@@ -489,8 +489,12 @@ function playerCard(instance) {
   return card;
 }
 
+let playersBusy = false;
 async function loadPlayers(force = false) {
   if (!force && !$("auto-refresh").checked) return;
+  if (playersBusy) return;
+  playersBusy = true;
+  $("refresh-players").disabled = true;
   const placeId = $("place-id").value.trim();
   try {
     const data = await api(`/api/players${placeId ? `?place_id=${encodeURIComponent(placeId)}` : ""}`);
@@ -505,9 +509,13 @@ async function loadPlayers(force = false) {
       data.instances.forEach((instance) => container.appendChild(playerCard(instance)));
     }
     $("players-meta").textContent = `${data.count} instance(s)`;
-    if (data.servers) renderServers(data.servers);
+    renderServers(data.servers || { servers: [] });
+    if (data.place_error) $("players-meta").textContent += ` · ${data.place_error.message}`;
   } catch (error) {
     $("players-meta").textContent = error.message;
+  } finally {
+    playersBusy = false;
+    $("refresh-players").disabled = false;
   }
 }
 
@@ -539,10 +547,14 @@ $("refresh-players").addEventListener("click", () => loadPlayers(true));
 /* ------------------------------------------------------------------- boot */
 
 const initial = (location.hash || "#setup").slice(1);
-if ($(`tab-${initial}`)) activate(initial);
+activate($(`tab-${initial}`) ? initial : "setup");
 refreshState();
 loadAutoExec();
-setInterval(refreshState, 6000);
+setInterval(() => { if (!document.hidden) refreshState(); }, 6000);
 setInterval(() => {
-  if ($("tab-players").classList.contains("active")) loadPlayers();
+  if (!document.hidden && $("tab-players").classList.contains("active")) loadPlayers();
 }, 4000);
+window.addEventListener("hashchange", () => {
+  const tab = location.hash.slice(1);
+  if ($(`tab-${tab}`)) activate(tab);
+});

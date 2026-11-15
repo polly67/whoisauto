@@ -13,7 +13,6 @@ downloaded from a third party by default.
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 import plistlib
@@ -24,8 +23,9 @@ import tempfile
 import urllib.parse
 import urllib.request
 import zipfile
+import uuid
 
-from .config import Paths, write_json
+from .config import Paths, read_json, write_json
 
 EDITOR_HINTS = ("opiumware", "opium")
 ROBLOX_HINTS = ("roblox",)
@@ -44,10 +44,12 @@ def bundle_executable(app: Path) -> Path | None:
         with (app / "Contents" / "Info.plist").open("rb") as stream:
             info = plistlib.load(stream)
         name = info["CFBundleExecutable"]
-    except (OSError, ValueError, KeyError):
+    except (OSError, ValueError, KeyError, TypeError, plistlib.InvalidFileException):
+        return None
+    if not isinstance(name, str) or not name or Path(name).name != name:
         return None
     candidate = app / "Contents" / "MacOS" / str(name)
-    return candidate if candidate.is_file() else None
+    return candidate if candidate.is_file() and candidate.resolve().is_relative_to(app.resolve()) else None
 
 
 def verify_app(app: Path, require_loader: bool = False) -> dict:
@@ -104,8 +106,6 @@ def _resolve_source(source: str | os.PathLike | None, paths: Paths, kind: str, w
 
 def _copy_tree(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.exists():
-        shutil.rmtree(destination)
     if is_darwin() and shutil.which("ditto"):
         # ditto preserves code signatures and extended attributes
         result = subprocess.run(["/usr/bin/ditto", str(source), str(destination)],
@@ -114,6 +114,35 @@ def _copy_tree(source: Path, destination: Path) -> None:
             raise InstallError(f"ditto failed: {result.stderr.strip()[-500:]}")
         return
     shutil.copytree(source, destination, symlinks=True)
+
+
+def _replace_app(source: Path, destination: Path, require_loader: bool) -> None:
+    """Verify a staged copy before replacing an existing installation."""
+    if source.resolve() == destination.resolve():
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    backup = destination.with_name(f".{destination.name}.backup-{uuid.uuid4().hex}")
+    with tempfile.TemporaryDirectory(prefix=".whoisauto-install-", dir=destination.parent) as temporary:
+        staged = Path(temporary) / destination.name
+        _copy_tree(source, staged)
+        verify_app(staged, require_loader)
+        if destination.exists() or destination.is_symlink():
+            os.replace(destination, backup)
+        try:
+            os.replace(staged, destination)
+        except OSError:
+            if backup.exists() or backup.is_symlink():
+                # Keep the backup outside the temporary directory so even a
+                # failed rollback never deletes the user's previous bundle.
+                try:
+                    os.replace(backup, destination)
+                except OSError as error:
+                    raise InstallError(f"Rollback failed: {error}; previous bundle remains at {backup}") from None
+            raise
+    if backup.is_symlink():
+        backup.unlink()
+    elif backup.exists():
+        shutil.rmtree(backup)
 
 
 def _extract(artifact: Path, workdir: Path) -> Path:
@@ -162,21 +191,32 @@ def _locate_app(root: Path) -> Path | None:
 def install(paths: Paths, kind: str, source: str | os.PathLike | None = None,
             destination: Path | None = None) -> dict:
     """Install one app bundle into the opom root and verify it."""
+    if kind not in ("editor", "roblox"):
+        raise InstallError("kind must be editor or roblox")
+    try:
+        return _install(paths, kind, source, destination)
+    except (OSError, subprocess.TimeoutExpired, zipfile.BadZipFile) as error:
+        raise InstallError(f"Could not install {kind}: {error}") from None
+
+
+def _install(paths: Paths, kind: str, source, destination: Path | None) -> dict:
     paths.ensure()
     destination = destination or (paths.editor_app if kind == "editor" else paths.roblox_app)
     with tempfile.TemporaryDirectory(prefix="whoisauto-install-") as temporary:
         workdir = Path(temporary)
         artifact = _resolve_source(source, paths, kind, workdir)
         extracted = _extract(artifact, workdir)
-        app = extracted if extracted.suffix.lower() == ".app" and bundle_executable(extracted) else _locate_app(extracted)
-        if app is None:
-            raise InstallError(f"{artifact.name} contains no runnable .app bundle")
-        # Verify before copying so a rejected bundle never leaves a half-install.
-        verify_app(app, require_loader=(kind == "roblox"))
-        _copy_tree(app, destination)
-        if artifact.suffix.lower() == ".dmg" and is_darwin():
-            subprocess.run(["/usr/bin/hdiutil", "detach", str(extracted), "-quiet"],
-                           capture_output=True, timeout=60)
+        try:
+            app = extracted if extracted.suffix.lower() == ".app" and bundle_executable(extracted) else _locate_app(extracted)
+            if app is None:
+                raise InstallError(f"{artifact.name} contains no runnable .app bundle")
+            # Verify before copying so a rejected bundle never leaves a half-install.
+            verify_app(app, require_loader=(kind == "roblox"))
+            _replace_app(app, destination, require_loader=(kind == "roblox"))
+        finally:
+            if artifact.suffix.lower() == ".dmg" and is_darwin():
+                subprocess.run(["/usr/bin/hdiutil", "detach", str(extracted), "-quiet"],
+                               capture_output=True, timeout=60)
     return verify_app(destination, require_loader=(kind == "roblox"))
 
 
@@ -216,10 +256,8 @@ def probe(paths: Paths) -> dict:
 
 
 def _read_manifest(paths: Paths) -> dict | None:
-    try:
-        return json.loads(paths.manifest_file.read_text())
-    except (OSError, ValueError):
-        return None
+    value = read_json(paths.manifest_file)
+    return value if isinstance(value, dict) else None
 
 
 def install_all(paths: Paths, editor_source=None, roblox_source=None, launch: bool = False) -> dict:

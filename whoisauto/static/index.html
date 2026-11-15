@@ -75,7 +75,7 @@
       stored locally with 0600 permissions, used to verify the account and to query place servers,
       and is never written into the repository.</p>
     <div class="row">
-      <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder=".ROBLOSECURITY value">
+      <input id="token" type="password" autocomplete="off" spellcheck="false" aria-label="Roblox account token" placeholder=".ROBLOSECURITY value">
       <button class="primary" id="save-token">Verify &amp; save</button>
       <button id="clear-token">Clear</button>
     </div>
@@ -120,7 +120,7 @@
         </label>
       </div>
       <label class="check"><input type="checkbox" id="autoexec-enabled"> Run this script after every join or rejoin</label>
-      <textarea id="autoexec-script" class="short" spellcheck="false"
+      <textarea id="autoexec-script" class="short" spellcheck="false" aria-label="Auto-execute script"
         placeholder="-- runs automatically once the client is in the place"></textarea>
       <div class="row">
         <button class="primary" id="autoexec-save">Save auto-execute</button>
@@ -134,7 +134,7 @@
 
   <!-- ---------------------------------------------------------- execute -->
   <section class="panel" id="tab-execute">
-    <textarea id="script" spellcheck="false" placeholder="-- Luau script">local Players = game:GetService("Players")
+    <textarea id="script" spellcheck="false" aria-label="Luau script" placeholder="-- Luau script">local Players = game:GetService("Players")
 print("whoisauto attached:", Players.LocalPlayer.Name, game.PlaceId)</textarea>
     <div class="grid3">
       <label class="field">Wait (s)

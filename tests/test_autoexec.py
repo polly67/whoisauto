@@ -1,4 +1,5 @@
 import time
+import threading
 
 import pytest
 
@@ -11,6 +12,22 @@ from whoisauto.service import OpomService
 def autoexec(paths, fake_opom):
     write_json(paths.port_file, {"port": fake_opom.server_address[1], "pid": 4242})
     return AutoExec(paths, OpomService(paths))
+
+
+@pytest.fixture
+def workers(monkeypatch):
+    original = threading.Thread
+    threads = []
+
+    def thread(*args, **kwargs):
+        value = original(*args, **kwargs)
+        threads.append(value)
+        return value
+
+    monkeypatch.setattr("whoisauto.autoexec.threading.Thread", thread)
+    yield threads
+    for value in threads:
+        value.join(timeout=2)
 
 
 def _wait(job_id, autoexec, timeout=5.0):
@@ -150,3 +167,149 @@ def test_manual_run_skips_the_place_wait(autoexec, fake_opom):
 def test_state_file_is_json(autoexec, paths):
     autoexec.save({"enabled": True, "script": "print('hi')"})
     assert read_json(paths.state / "autoexec.json")["script"] == "print('hi')"
+
+
+def test_cancel_while_waiting_for_place_never_executes(autoexec, monkeypatch, workers):
+    reached = threading.Event()
+    release = threading.Event()
+    executed = []
+
+    def call(method, path, payload=None, timeout=40):
+        if path.startswith("/runtime"):
+            reached.set()
+            release.wait(2)
+            return 200, {"runtime": {"place_id": 42, "loaded": True, "connected": True}}
+        executed.append(path)
+        return 200, {"ok": True}
+
+    monkeypatch.setattr(autoexec.service, "call", call)
+    autoexec.save({"enabled": True, "script": "print('auto')", "delay": 0})
+    job = autoexec.trigger("join", 42, 8390)
+    try:
+        assert reached.wait(2)
+        assert autoexec.cancel()["cancelled"] is True
+    finally:
+        release.set()
+    assert _wait(job["id"], autoexec)["status"] == "cancelled"
+    for worker in workers:
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+    assert not executed
+
+
+def test_rejoin_retires_worker_waiting_for_runtime(autoexec, monkeypatch, workers):
+    reached = threading.Event()
+    release = threading.Event()
+    executed = []
+
+    def call(method, path, payload=None, timeout=40):
+        if path == "/runtime?port=8390":
+            reached.set()
+            release.wait(2)
+            return 200, {"runtime": {"place_id": 42, "loaded": True, "connected": True}}
+        if path.startswith("/runtime"):
+            return 200, {"runtime": {"place_id": 43, "loaded": True, "connected": True}}
+        executed.append(payload["port"])
+        return 200, {"ok": True}
+
+    monkeypatch.setattr(autoexec.service, "call", call)
+    autoexec.save({"enabled": True, "script": "print('auto')", "delay": 0})
+    first = autoexec.trigger("join", 42, 8390)
+    try:
+        assert reached.wait(2)
+        second = autoexec.trigger("rejoin", 43, 8391)
+        assert second["id"] != first["id"]
+    finally:
+        release.set()
+    assert _wait(second["id"], autoexec)["status"] == "done"
+    for worker in workers:
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+    assert executed == [8391]
+
+
+def test_autoexec_reports_remote_execution_failure(autoexec, monkeypatch):
+    monkeypatch.setattr(autoexec.service, "call", lambda *args, **kwargs: (
+        200, {"ok": False, "job": {"id": "a" * 32, "status": "failed",
+                                    "result": {"error": "script crashed"}}}))
+    autoexec.save({"enabled": True, "script": "error('oops')", "delay": 0})
+    job = autoexec.trigger("manual", None)
+    settled = _wait(job["id"], autoexec)
+    assert settled["status"] == "failed"
+    assert settled["message"] == "script crashed"
+    assert settled["job_id_remote"] == "a" * 32
+
+
+def test_autoexec_waits_for_submitted_remote_job(autoexec, monkeypatch):
+    calls = []
+
+    def call(method, path, payload=None, timeout=40):
+        calls.append(path)
+        status = "submitted" if path == "/execute" else "completed"
+        return 202 if status == "submitted" else 200, {
+            "ok": True, "job": {"id": "a" * 32, "status": status}}
+
+    monkeypatch.setattr(autoexec.service, "call", call)
+    autoexec.save({"enabled": True, "script": "print('auto')", "delay": 0})
+    job = autoexec.trigger("manual", None)
+    assert _wait(job["id"], autoexec)["status"] == "done"
+    assert "/jobs/" + "a" * 32 in calls
+
+
+@pytest.mark.parametrize("value", [[], {"script": 12, "name": []}])
+def test_corrupt_autoexec_state_is_safe(autoexec, paths, value):
+    write_json(paths.state / "autoexec.json", value)
+    assert autoexec.snapshot()["config"]["script"] == ""
+
+
+def test_autoexec_rejects_invalid_name(autoexec):
+    with pytest.raises(ValueError, match="name must be text"):
+        autoexec.save({"name": 123})
+
+
+def test_nonfinite_config_uses_defaults(autoexec):
+    result = autoexec.save({"delay": float("nan"), "timeout": float("inf")})
+    assert result["config"]["delay"] == 3
+    assert result["config"]["timeout"] == 30
+
+
+def test_disable_cancels_a_queued_script(autoexec):
+    autoexec.save({"enabled": True, "script": "print('auto')", "delay": 30})
+    autoexec.trigger("manual", None)
+    result = autoexec.save({"enabled": False})
+    assert result["job"]["status"] == "cancelled"
+    assert result["last"]["status"] == "cancelled"
+
+
+def test_autoexec_reports_remote_timeout(autoexec, monkeypatch):
+    monkeypatch.setattr(autoexec.service, "call", lambda *args, **kwargs: (
+        504, {"ok": False, "job": {"id": "a" * 32, "status": "timed_out"}}))
+    autoexec.save({"enabled": True, "script": "print('auto')", "delay": 0})
+    job = autoexec.trigger("manual", None)
+    settled = _wait(job["id"], autoexec)
+    assert settled["status"] == "timeout"
+    assert "may still be running" in settled["message"]
+
+
+def test_leaving_place_during_grace_period_does_not_execute(autoexec, monkeypatch):
+    calls = []
+
+    def call(method, path, payload=None, timeout=40):
+        calls.append(path)
+        return 200, {"runtime": {"place_id": 42 if len(calls) == 1 else 43,
+                                  "loaded": True, "connected": True}}
+
+    monkeypatch.setattr(autoexec.service, "call", call)
+    autoexec.save({"enabled": True, "script": "print('auto')", "delay": 0.01})
+    job = autoexec.trigger("join", 42, 8390)
+    settled = _wait(job["id"], autoexec)
+    assert settled["error"] == "place_changed"
+    assert "/execute" not in calls
+
+
+def test_closed_worker_cannot_queue_another_script(autoexec):
+    autoexec.save({"enabled": True, "script": "print('auto')", "delay": 30})
+    autoexec.trigger("manual", None)
+    autoexec.close()
+    assert autoexec.job()["status"] == "cancelled"
+    assert autoexec.trigger("join", 42) is None

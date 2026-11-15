@@ -87,3 +87,63 @@ def test_verify_rejects_non_bundle(tmp_path):
     plain.mkdir()
     with pytest.raises(installer.InstallError):
         installer.verify_app(plain)
+
+
+def test_failed_copy_keeps_existing_install(paths, tmp_path, monkeypatch):
+    old = make_app(paths.root / "Apps", "Opiumware.app", "Opiumware")
+    marker = old / "keep.txt"
+    marker.write_text("old install")
+    source = make_app(tmp_path / "src", "Opiumware.app", "Opiumware")
+    monkeypatch.setattr(installer, "is_darwin", lambda: False)
+
+    def fail(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(installer.shutil, "copytree", fail)
+    with pytest.raises(installer.InstallError, match="disk full"):
+        installer.install(paths, "editor", source)
+    assert marker.read_text() == "old install"
+
+
+def test_installing_bundle_onto_itself_is_safe(paths):
+    source = make_app(paths.root / "Apps", "Opiumware.app", "Opiumware")
+    result = installer.install(paths, "editor", source)
+    assert result["path"] == str(source)
+    assert source.is_dir()
+
+
+def test_dmg_detaches_when_verification_fails(paths, tmp_path, monkeypatch):
+    artifact = tmp_path / "Roblox.dmg"
+    artifact.touch()
+    source = make_app(tmp_path / "mounted", "Roblox.app", "RobloxPlayer")
+    monkeypatch.setattr(installer, "is_darwin", lambda: True)
+    monkeypatch.setattr(installer, "_extract", lambda *args: source.parent)
+    calls = []
+    monkeypatch.setattr(installer.subprocess, "run", lambda command, **kwargs: calls.append(command))
+    with pytest.raises(installer.InstallError, match="libOpiumware"):
+        installer.install(paths, "roblox", artifact)
+    assert calls == [["/usr/bin/hdiutil", "detach", str(source.parent), "-quiet"]]
+
+
+def test_failed_replacement_restores_existing_bundle(paths, tmp_path, monkeypatch):
+    old = make_app(paths.root / "Apps", "Opiumware.app", "Opiumware")
+    (old / "keep.txt").write_text("old install")
+    source = make_app(tmp_path / "src", "Opiumware.app", "Opiumware")
+    original = installer.os.replace
+
+    def replace(source, destination):
+        if ".whoisauto-install-" in str(source):
+            raise OSError("rename failed")
+        return original(source, destination)
+
+    monkeypatch.setattr(installer.os, "replace", replace)
+    with pytest.raises(installer.InstallError, match="rename failed"):
+        installer.install(paths, "editor", source)
+    assert (old / "keep.txt").read_text() == "old install"
+
+
+def test_broken_zip_reports_install_error(paths, tmp_path):
+    source = tmp_path / "Opiumware.zip"
+    source.write_text("not a zip archive")
+    with pytest.raises(installer.InstallError):
+        installer.install(paths, "editor", source)

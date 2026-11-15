@@ -25,14 +25,16 @@ class RobloxError(RuntimeError):
 
 
 def normalize_token(raw: str) -> str:
+    if not isinstance(raw, str):
+        raise RobloxError("invalid_token", "The token must be text")
     token = (raw or "").strip().strip('"').strip("'")
     for prefix in (".ROBLOSECURITY=", "ROBLOSECURITY="):
         if token.startswith(prefix):
             token = token[len(prefix):]
-    token = token.strip()
+    token = token.strip().strip("\"'")
     if not token:
         raise RobloxError("invalid_token", "Paste the .ROBLOSECURITY value")
-    if any(character.isspace() for character in token):
+    if any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in token):
         raise RobloxError("invalid_token", "The token contains whitespace; paste only the cookie value")
     return token
 
@@ -50,7 +52,10 @@ def _get(url: str, token: str | None = None) -> dict:
     request = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-            return json.load(response)
+            value = json.load(response)
+            if not isinstance(value, dict):
+                raise RobloxError("roblox_bad_response", "Roblox returned an invalid JSON object")
+            return value
     except urllib.error.HTTPError as error:
         if error.code in (401, 403):
             raise RobloxError("unauthorized", "Roblox rejected the token; sign in again and re-copy it",

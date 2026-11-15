@@ -69,6 +69,18 @@ def test_paths_fall_back_to_applications(tmp_path, monkeypatch):
     monkeypatch.delenv("OPOM_ROBLOX_APP", raising=False)
     monkeypatch.delenv("OPOM_EDITOR_APP", raising=False)
     monkeypatch.delenv("OPOM_ROOT", raising=False)
+    original = Path.exists
+    monkeypatch.setattr(Path, "exists", lambda path: str(path).startswith("/Applications/") or original(path))
     value = Paths.load(tmp_path / "rt")
     assert value.roblox_app == Path("/Applications/Roblox.app")
     assert value.editor_app == Path("/Applications/Opiumware.app")
+
+
+def test_fresh_install_targets_runtime_not_system_applications(tmp_path, monkeypatch):
+    for name in ("OPOM_ROBLOX_APP", "OPOM_EDITOR_APP", "OPOM_ROOT"):
+        monkeypatch.delenv(name, raising=False)
+    original = Path.exists
+    monkeypatch.setattr(Path, "exists", lambda path: False if str(path).startswith("/Applications/") else original(path))
+    value = Paths.load(tmp_path / "rt")
+    assert value.editor_app == value.root / "Apps" / "Opiumware.app"
+    assert value.roblox_app == value.root / "Apps" / "Roblox.app"
