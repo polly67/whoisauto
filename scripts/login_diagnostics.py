@@ -1,13 +1,40 @@
-"""Read only redacted observation records and cookie format flags on the runner."""
+"""Compare account verification with normal launch-ticket request headers on the runner."""
 import json
 from pathlib import Path
-import re
 import sys
+import urllib.request
+import urllib.error
 from whoisauto import roblox
 cookie = roblox.normalize_token(json.loads((Path(sys.argv[1]) / "account.json").read_text())["token"])
-print("COOKIE_FORMAT " + json.dumps({"length": len(cookie), "has_expected_warning": cookie.startswith("_|WARNING:"),
-    "has_semicolon": ";" in cookie, "has_encoded_characters": bool(re.search(r"%[0-9A-Fa-f]{2}", cookie)),
-    "has_quotes": "\"" in cookie or "'" in cookie, "has_cookie_prefix": "ROBLOSECURITY=" in cookie}))
 for line in Path("/tmp/panel.log").read_text(errors="replace").splitlines():
     if line.startswith("WHOISAUTO_AUTH_DIAGNOSTIC "):
         print(line)
+try:
+    roblox.validate_token(cookie)
+    print("CURRENT_ACCOUNT_VALID")
+except roblox.RobloxError as error:
+    print("CURRENT_ACCOUNT_INVALID", error.status)
+    raise SystemExit(0)
+for path in ("/v1/authentication-ticket/", "/v1/authentication-ticket"):
+    headers = {"Cookie": ".ROBLOSECURITY=" + cookie, "Content-Type": "application/json", "Accept": "application/json",
+               "User-Agent": roblox.USER_AGENT, "Origin": "https://www.roblox.com", "Referer": "https://www.roblox.com/"}
+    for attempt in range(2):
+        request=urllib.request.Request("https://auth.roblox.com"+path,data=b"{}",headers=headers,method="POST")
+        try: response=urllib.request.urlopen(request,timeout=15)
+        except urllib.error.HTTPError as error: response=error
+        with response:
+            codes=[]
+            try:
+                errors=json.loads(response.read(8192)).get("errors",[])
+                codes=[value.get("code") for value in errors if isinstance(value,dict)]
+            except (ValueError,AttributeError,TypeError): pass
+            csrf=response.headers.get("x-csrf-token")
+            ticket=bool(response.headers.get("rbx-authentication-ticket"))
+            print("TICKET_PROBE " + json.dumps({"path":path,"attempt":attempt+1,"status":response.code,"codes":codes,
+                "final_url":response.geturl().split("?")[0],"csrf":bool(csrf),"ticket":ticket}))
+            if response.code == 429: raise SystemExit(0)
+            if ticket: raise SystemExit(0)
+            if attempt == 0 and response.code == 403 and csrf:
+                headers["X-CSRF-TOKEN"]=csrf
+                continue
+            break
