@@ -37,6 +37,7 @@ jobs:
         run: |
           python -m pytest -q
           node --test tests/test_app.js
+          node --test tests/test_desktop.js
           bash -n scripts/ci/install_apps.sh scripts/ci/start_panel.sh scripts/ci/check_panel.sh
 
       - name: Compile the authenticated Roblox launcher

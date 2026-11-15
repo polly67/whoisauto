@@ -198,7 +198,7 @@ class WebRTCDesktop:
                         f"! videoconvert ! videoscale ! video/x-raw,width=1280,height=720 "
                         f"! {encoder} name=encoder bitrate=6000 {keyframe} ")
             pipeline += ("! h264parse config-interval=-1 ! video/x-h264,profile=constrained-baseline "
-                         f"! rtph264pay pt={payload} config-interval=-1 aggregate-mode=zero-latency "
+                         f"! rtph264pay name=pay pt={payload} config-interval=-1 aggregate-mode=zero-latency "
                          f"! application/x-rtp,media=video,encoding-name=H264,payload={payload},clock-rate=90000 "
                          "! webrtcbin name=peer bundle-policy=max-bundle")
             try:
@@ -218,6 +218,12 @@ class WebRTCDesktop:
                 self.session = uuid.uuid4().hex
                 self._last_seen = time.monotonic()
                 self.pipe.set_state(Gst.State.PLAYING)
+                deadline = time.monotonic() + 5
+                pay = self.pipe.get_by_name("pay")
+                while not pay.get_static_pad("src").get_current_caps() and time.monotonic() < deadline:
+                    if self._error:
+                        raise DesktopError(503, "capture_failed", self._error)
+                    time.sleep(0.02)
                 _, message = self.Sdp.SDPMessage.new()
                 if self.Sdp.sdp_message_parse_buffer(sdp.encode(), message) != self.Sdp.SDPResult.OK:
                     raise DesktopError(400, "invalid_offer", "Could not parse SDP")
@@ -229,13 +235,19 @@ class WebRTCDesktop:
                     try:
                         reply = promise.get_reply()
                         value = reply.get_value("answer")
-                        local = Gst.Promise.new()
+                        text = value.sdp.as_text()
+                        if "a=setup:actpass" in text:
+                            _, fixed = self.Sdp.SDPMessage.new()
+                            self.Sdp.sdp_message_parse_buffer(text.replace("a=setup:actpass", "a=setup:active").encode(), fixed)
+                            value = self.RTC.WebRTCSessionDescription.new(self.RTC.WebRTCSDPType.ANSWER, fixed)
+                        def local_set(result, *args):
+                            answer["value"] = value
+                            done.set()
+                        local = Gst.Promise.new_with_change_func(local_set, None, None)
                         self.peer.emit("set-local-description", value, local)
-                        local.interrupt()
-                        answer["value"] = value
                     except Exception:
                         answer["error"] = True
-                    done.set()
+                        done.set()
 
                 def remote_set(promise, *args):
                     result = Gst.Promise.new_with_change_func(created, None, None)
