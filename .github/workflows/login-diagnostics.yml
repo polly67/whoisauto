@@ -1,0 +1,27 @@
+name: Inspect Roblox login response
+on:
+  push:
+    branches: [codex/login-diagnostics]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SSH client
+        run: sudo apt-get update -qq && sudo apt-get install -y sshpass
+      - uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+      - name: Inspect saved-cookie response on the macOS runner
+        env:
+          REMOTE_HOST: github-sjc22-be113-bb4f02cf-946b-48b5-801d-b6aade711338-2a30124.tail8b8fe8.ts.net
+          SSHPASS: root
+        run: |
+          ssh-keyscan -T 10 -t ed25519 "$REMOTE_HOST" > "$RUNNER_TEMP/known_hosts"
+          sshpass -e ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/known_hosts" \
+            "runner@$REMOTE_HOST" \
+            'cd /Users/runner/work/whoisauto/whoisauto && python3 - /Users/runner/work/whoisauto/whoisauto/runtime/state' \
+            < scripts/login_diagnostics.py
