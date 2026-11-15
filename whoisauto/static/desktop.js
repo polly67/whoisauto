@@ -45,12 +45,10 @@
       const config = await api("/api/desktop/config");
       peer = new RTCPeerConnection({ iceServers: config.iceServers, bundlePolicy: "max-bundle" });
       const current = peer;
-      const transceiver = peer.addTransceiver("video", { direction: "recvonly" });
-      const codecs = RTCRtpReceiver.getCapabilities("video").codecs.filter((codec) => codec.mimeType.toLowerCase() === "video/h264");
-      if (!codecs.length) throw new Error("This browser does not support H.264 WebRTC.");
-      transceiver.setCodecPreferences?.(codecs);
-      pointer = peer.createDataChannel("pointer", { ordered: false, maxRetransmits: 0 });
-      keys = peer.createDataChannel("keys", { ordered: true });
+      peer.ondatachannel = ({ channel }) => {
+        if (channel.label === "pointer") pointer = channel;
+        else if (channel.label === "keys") keys = channel;
+      };
       peer.ontrack = ({ track, streams }) => {
         video.srcObject = streams[0] || new MediaStream([track]);
         video.play().catch(() => { status.textContent = "Tap the video to start playback."; });
@@ -60,7 +58,11 @@
         status.textContent = current.connectionState;
         if (["failed", "closed"].includes(current.connectionState)) stop();
       };
-      await peer.setLocalDescription(await peer.createOffer());
+      const offer = await api("/api/desktop/offer", { method: "POST",
+        body: JSON.stringify({ type: "start" }), timeout: 90000 });
+      session = offer.session;
+      await peer.setRemoteDescription({ type: "offer", sdp: offer.sdp });
+      await peer.setLocalDescription(await peer.createAnswer());
       if (peer.iceGatheringState !== "complete") {
         await new Promise((resolve) => {
           const timeout = setTimeout(resolve, 12000);
@@ -74,10 +76,8 @@
           current.addEventListener("icegatheringstatechange", changed);
         });
       }
-      const answer = await api("/api/desktop/offer", { method: "POST",
-        body: JSON.stringify({ type: "offer", sdp: peer.localDescription.sdp }), timeout: 90000 });
-      session = answer.session;
-      await peer.setRemoteDescription({ type: "answer", sdp: answer.sdp });
+      await api("/api/desktop/answer", { method: "POST",
+        body: JSON.stringify({ session, type: "answer", sdp: peer.localDescription.sdp }) });
       statsTime = statsBytes = 0;
       timer = setInterval(async () => {
         if (current !== peer) return;

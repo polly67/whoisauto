@@ -11,6 +11,7 @@ import subprocess
 import sys
 import threading
 import time
+import tempfile
 import urllib.parse
 import uuid
 
@@ -179,10 +180,9 @@ class WebRTCDesktop:
                 "width": 1280, "height": 720, "fps": 60, "bitrate": 6000000}
 
     def offer(self, body: dict, *, test: bool = False) -> dict:
-        sdp = body.get("sdp")
-        if body.get("type") != "offer" or not isinstance(sdp, str) or len(sdp) > 128 * 1024 or "v=0" not in sdp:
-            raise DesktopError(400, "invalid_offer", "Send a valid WebRTC SDP offer")
-        payload = h264_payload(sdp)
+        if body.get("type") != "start":
+            raise DesktopError(400, "invalid_offer", "Start a host-generated WebRTC session")
+        payload = 96
         with self.lock:
             if self.session and time.monotonic() - self._last_seen < 20:
                 raise DesktopError(409, "desktop_busy", "Another desktop session is connected")
@@ -224,22 +224,20 @@ class WebRTCDesktop:
                     if self._error:
                         raise DesktopError(503, "capture_failed", self._error)
                     time.sleep(0.02)
-                _, message = self.Sdp.SDPMessage.new()
-                if self.Sdp.sdp_message_parse_buffer(sdp.encode(), message) != self.Sdp.SDPResult.OK:
-                    raise DesktopError(400, "invalid_offer", "Could not parse SDP")
-                description = self.RTC.WebRTCSessionDescription.new(self.RTC.WebRTCSDPType.OFFER, message)
                 done = threading.Event()
                 answer = {}
+                for label in ("pointer", "keys"):
+                    options = self.Gst.Structure.new_empty("application/data-channel")
+                    options.set_value("ordered", label != "pointer")
+                    if label == "pointer": options.set_value("max-retransmits", 0)
+                    channel = self.peer.emit("create-data-channel", label, options)
+                    if not channel: raise DesktopError(503, "negotiation_failed", "Could not create input channel")
+                    self._channel(self.peer, channel)
 
-                def created(promise, *args):
+                def local_offer_created(promise, *args):
                     try:
                         reply = promise.get_reply()
-                        value = reply.get_value("answer")
-                        text = value.sdp.as_text()
-                        if "a=setup:actpass" in text:
-                            _, fixed = self.Sdp.SDPMessage.new()
-                            self.Sdp.sdp_message_parse_buffer(text.replace("a=setup:actpass", "a=setup:active").encode(), fixed)
-                            value = self.RTC.WebRTCSessionDescription.new(self.RTC.WebRTCSDPType.ANSWER, fixed)
+                        value = reply.get_value("offer")
                         def local_set(result, *args):
                             answer["value"] = value
                             done.set()
@@ -248,15 +246,10 @@ class WebRTCDesktop:
                     except Exception:
                         answer["error"] = True
                         done.set()
-
-                def remote_set(promise, *args):
-                    result = Gst.Promise.new_with_change_func(created, None, None)
-                    self.peer.emit("create-answer", None, result)
-
-                promise = Gst.Promise.new_with_change_func(remote_set, None, None)
-                self.peer.emit("set-remote-description", description, promise)
+                promise = Gst.Promise.new_with_change_func(local_offer_created, None, None)
+                self.peer.emit("create-offer", None, promise)
                 if not done.wait(10) or answer.get("error"):
-                    raise DesktopError(503, "negotiation_failed", "Could not create a WebRTC answer")
+                    raise DesktopError(503, "negotiation_failed", "Could not create a WebRTC offer")
                 deadline = time.monotonic() + 12
                 while time.monotonic() < deadline:
                     if self._error:
@@ -267,13 +260,31 @@ class WebRTCDesktop:
                 local = self.peer.get_property("local-description")
                 if not local:
                     raise DesktopError(503, "negotiation_failed", "The WebRTC answer is unavailable")
-                return {"ok": True, "session": self.session, "type": "answer", "sdp": local.sdp.as_text()}
+                return {"ok": True, "session": self.session, "type": "offer", "sdp": local.sdp.as_text()}
             except DesktopError:
                 self.close()
                 raise
             except Exception:
                 self.close()
                 raise DesktopError(503, "webrtc_failed", "Could not start capture or negotiate H.264 WebRTC") from None
+
+    def answer(self, body: dict) -> dict:
+        sdp = body.get("sdp")
+        if body.get("type") != "answer" or not isinstance(sdp, str) or len(sdp) > 128 * 1024:
+            raise DesktopError(400, "invalid_answer", "Send a WebRTC answer")
+        with self.lock:
+            if body.get("session") != self.session or not self.peer:
+                raise DesktopError(404, "session_not_found", "Desktop session ended")
+            _, message = self.Sdp.SDPMessage.new()
+            if self.Sdp.sdp_message_parse_buffer(sdp.encode(), message) != self.Sdp.SDPResult.OK:
+                raise DesktopError(400, "invalid_answer", "Could not parse SDP")
+            description = self.RTC.WebRTCSessionDescription.new(self.RTC.WebRTCSDPType.ANSWER, message)
+            promise = self.Gst.Promise.new()
+            self.peer.emit("set-remote-description", description, promise)
+            if promise.wait() != self.Gst.PromiseResult.REPLIED:
+                raise DesktopError(503, "negotiation_failed", "WebRTC answer was rejected")
+            self._last_seen = time.monotonic()
+            return {"ok": True}
 
     def _bus_error(self, bus, message):
         self._error = "Screen capture or encoding failed; check macOS Screen Recording permission"

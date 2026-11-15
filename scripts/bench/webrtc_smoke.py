@@ -4,10 +4,20 @@ import json
 from pathlib import Path
 import tempfile
 
-from aiortc import RTCPeerConnection, RTCSessionDescription, RTCRtpReceiver
+from aiortc import RTCPeerConnection, RTCSessionDescription, RTCRtpReceiver, RTCCertificate
 from whoisauto.config import Paths
 from whoisauto.desktop import WebRTCDesktop
 
+
+# Match modern browser DTLS cipher support. aiortc's default context only offers
+# ECDSA, while GStreamer's default certificate is RSA. Add a strong ECDHE/RSA
+# cipher for this test receiver; certificate fingerprint checks remain enabled.
+original_context = RTCCertificate._create_ssl_context
+def browser_context(self, srtp_profiles):
+    context = original_context(self, srtp_profiles)
+    context.set_cipher_list(b"ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256")
+    return context
+RTCCertificate._create_ssl_context = browser_context
 
 async def run():
     with tempfile.TemporaryDirectory(prefix="whoisauto-webrtc-") as temporary:
@@ -21,17 +31,13 @@ async def run():
         def received(value):
             if not track.done(): track.set_result(value)
 
-        transceiver = client.addTransceiver("video", direction="recvonly")
-        transceiver.setCodecPreferences([codec for codec in RTCRtpReceiver.getCapabilities("video").codecs
-                                        if codec.mimeType.lower() == "video/h264"])
-        client.createDataChannel("keys")
         try:
-            await client.setLocalDescription(await client.createOffer())
-            answer = await asyncio.to_thread(desktop.offer,
-                {"type": "offer", "sdp": client.localDescription.sdp}, test=True)
-            print(json.dumps({"answer_media": [line for line in answer["sdp"].splitlines()
+            offer = await asyncio.to_thread(desktop.offer, {"type": "start"}, test=True)
+            print(json.dumps({"offer_media": [line for line in offer["sdp"].splitlines()
                 if line.startswith(("m=", "a=send", "a=recv", "a=inactive", "a=rtpmap", "a=fmtp", "a=setup"))]}))
-            await client.setRemoteDescription(RTCSessionDescription(sdp=answer["sdp"], type="answer"))
+            await client.setRemoteDescription(RTCSessionDescription(sdp=offer["sdp"], type="offer"))
+            await client.setLocalDescription(await client.createAnswer())
+            await asyncio.to_thread(desktop.answer, {"session": offer["session"], "type": "answer", "sdp": client.localDescription.sdp})
             video = await asyncio.wait_for(track, timeout=15)
             frame = await asyncio.wait_for(video.recv(), timeout=20)
             assert frame.width == 1280 and frame.height == 720

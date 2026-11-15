@@ -25,9 +25,15 @@ function setup() {
       channels.push(channel);
       return channel;
     }
-    async createOffer() { return { type: "offer", sdp: "test offer" }; }
+    async createAnswer() { return { type: "answer", sdp: "test answer" }; }
     async setLocalDescription(value) { this.localDescription = value; }
-    async setRemoteDescription(value) { this.remoteDescription = value; }
+    async setRemoteDescription(value) {
+      this.remoteDescription = value;
+      for (const label of ["pointer", "keys"]) {
+        const channel = this.createDataChannel(label, { ordered: label !== "pointer", ...(label === "pointer" ? { maxRetransmits: 0 } : {}) });
+        this.ondatachannel?.({ channel });
+      }
+    }
     close() { this.closed = true; }
   }
   const context = vm.createContext({
@@ -37,7 +43,7 @@ function setup() {
     api: async (url, options) => {
       calls.push({ url, options });
       if (url.endsWith("config")) return { iceServers: [] };
-      if (url.endsWith("offer")) return { session: "session-1", type: "answer", sdp: "answer" };
+      if (url.endsWith("offer")) return { session: "session-1", type: "offer", sdp: "offer" };
       return { ok: true };
     }, setInterval: () => 0, clearInterval() {}, setTimeout, clearTimeout,
   });

@@ -453,6 +453,8 @@ class Handler(BaseHTTPRequestHandler):
             return 200, panel.desktop.config()
         if method == "POST" and path == "/api/desktop/offer":
             return 200, panel.desktop.offer(body)
+        if method == "POST" and path == "/api/desktop/answer":
+            return 200, panel.desktop.answer(body)
         if method == "GET" and path == "/api/desktop/status":
             return 200, panel.desktop.status(query.get("session", ""))
         if method == "POST" and path == "/api/desktop/stop":
