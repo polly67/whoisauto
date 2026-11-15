@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from whoisauto.desktop import DesktopError, WebRTCDesktop, h264_payload, ice_servers, input_event, turn_uri
+from whoisauto.desktop import DesktopError, WebRTCDesktop, ice_servers, input_event, turn_uri
 
 
 def test_turn_credentials_are_configured_as_a_set(monkeypatch):
@@ -33,12 +33,6 @@ def test_input_rejects_invalid_or_unbounded_events(event):
 def test_input_accepts_normalized_pointer_and_key():
     assert input_event('{"type":"button","x":0.5,"y":0.4,"button":0,"down":true}')
     assert input_event('{"type":"key","code":"KeyW","down":true}')
-
-
-def test_h264_payload_follows_browser_offer():
-    assert h264_payload("a=rtpmap:102 H264/90000\r\na=fmtp:102 packetization-mode=1;profile-level-id=42e01f\r\n") == 102
-    with pytest.raises(DesktopError):
-        h264_payload("a=rtpmap:96 VP8/90000\r\n")
 
 
 def test_invalid_offer_does_not_load_native_runtime(paths):

@@ -5,13 +5,11 @@ from __future__ import annotations
 import json
 import math
 import os
-import re
 from pathlib import Path
 import subprocess
 import sys
 import threading
 import time
-import tempfile
 import urllib.parse
 import uuid
 
@@ -71,20 +69,6 @@ def input_event(raw: str) -> dict | None:
     elif kind != "release":
         return None
     return event
-
-
-def h264_payload(sdp: str) -> int:
-    compatible = []
-    for value in re.finditer(r"^a=rtpmap:(\d+) H264/90000\s*$", sdp, re.MULTILINE | re.IGNORECASE):
-        payload = value.group(1)
-        fmtp = re.search(r"^a=fmtp:" + payload + r" (.+)$", sdp, re.MULTILINE)
-        parameters = fmtp.group(1).lower() if fmtp else ""
-        profile = re.search(r"profile-level-id=([0-9a-f]+)", parameters)
-        if "packetization-mode=1" in parameters and (not profile or profile.group(1).startswith("42")):
-            compatible.append((0 if profile and profile.group(1).startswith("42e") else 1, int(payload)))
-    if compatible:
-        return min(compatible)[1]
-    raise DesktopError(400, "unsupported_codec", "The browser must offer baseline H.264 with packetization mode 1")
 
 
 class NativeInput:
