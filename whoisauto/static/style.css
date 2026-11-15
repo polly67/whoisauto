@@ -163,6 +163,9 @@ button.primary:hover { background: #2b4c82; }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 .players { display: grid; gap: 10px; }
+#desktop-video { width: 100%; aspect-ratio: 16 / 9; background: #000; object-fit: contain; touch-action: none; border-radius: 10px; }
+#desktop-video:focus-visible { outline: 2px solid var(--accent); }
+.remote-keys button { touch-action: none; user-select: none; min-width: 44px; min-height: 44px; }
 .player {
   display: grid;
   grid-template-columns: 90px 1fr 1fr 1fr;

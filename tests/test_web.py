@@ -438,3 +438,15 @@ def test_manual_login_route_does_not_require_saved_cookie(panel, monkeypatch):
     status, payload = call(panel, "POST", "/api/roblox/login", {})
     assert status == 200
     assert payload["manual_sign_in"] is True
+
+
+def test_desktop_requires_panel_authentication(secure_panel):
+    status, payload = call(secure_panel, "GET", "/api/desktop/config")
+    assert status == 401
+    assert payload["error"] == "unauthorized"
+
+
+def test_desktop_invalid_offer_returns_client_error(panel):
+    status, payload = call(panel, "POST", "/api/desktop/offer", {"type": "offer", "sdp": "bad"})
+    assert status == 400
+    assert payload["error"] == "invalid_offer"

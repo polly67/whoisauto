@@ -19,6 +19,7 @@ from .autoexec import AutoExec
 from .config import (ConfigError, DEFAULT_OPOM_PORT, DEFAULT_WEB_PORT, Paths, find_free_port, read_json, write_json)
 from .service import OpomService, ServiceError
 from .player import PlayerControls, PlayerError
+from .desktop import WebRTCDesktop, DesktopError
 
 STATIC = Path(__file__).resolve().parent / "static"
 BODY_LIMIT = 8 * 1024 * 1024
@@ -117,6 +118,7 @@ class Panel:
         self.service = service or OpomService(paths)
         self.autoexec = AutoExec(paths, self.service)
         self.player = PlayerControls(paths, self.service, before_stop=self.autoexec.cancel)
+        self.desktop = WebRTCDesktop(paths)
         self._last_place: int | None = None
         self._last_port: int | None = None
 
@@ -420,6 +422,8 @@ class Handler(BaseHTTPRequestHandler):
                                           **error.details})
         except PlayerError as error:
             self.send_json(error.status, {"ok": False, "error": error.code, "message": str(error), **error.details})
+        except DesktopError as error:
+            self.send_json(error.status, {"ok": False, "error": error.code, "message": str(error)})
         except (ServiceError, installer.InstallError) as error:
             code = getattr(error, "code", "install_failed")
             status = 502 if code == "api_bad_response" else 503 if code in ("api_down", "api_unreachable", "api_timeout") else 400
@@ -445,6 +449,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def route(self, method: str, path: str, body: dict, query: dict) -> tuple[int, dict]:
         panel = self.panel
+        if method == "GET" and path == "/api/desktop/config":
+            return 200, panel.desktop.config()
+        if method == "POST" and path == "/api/desktop/offer":
+            return 200, panel.desktop.offer(body)
+        if method == "GET" and path == "/api/desktop/status":
+            return 200, panel.desktop.status(query.get("session", ""))
+        if method == "POST" and path == "/api/desktop/stop":
+            return 200, panel.desktop.stop(body.get("session", ""))
         if method == "GET" and path == "/api/state":
             return 200, panel.state()
         if method == "GET" and path == "/api/players":
@@ -506,6 +518,7 @@ class Server(ThreadingHTTPServer):
         self.server_port = self.server_address[1]
 
     def server_close(self):
+        self.panel.desktop.shutdown()
         self.panel.autoexec.close()
         super().server_close()
 

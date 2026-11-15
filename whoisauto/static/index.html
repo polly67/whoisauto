@@ -26,9 +26,28 @@
   <button class="tab" data-tab="join" role="tab">Join</button>
   <button class="tab" data-tab="execute" role="tab">Execute</button>
   <button class="tab" data-tab="players" role="tab">Players</button>
+  <button class="tab" data-tab="desktop" role="tab">Desktop</button>
 </nav>
 
 <main>
+  <section class="panel" id="tab-desktop">
+    <div class="row">
+      <button class="primary" id="desktop-connect">Connect desktop</button>
+      <button id="desktop-disconnect">Disconnect</button>
+      <button id="desktop-fullscreen">Fullscreen</button>
+    </div>
+    <p class="path" id="desktop-status" role="status">Disconnected.</p>
+    <video id="desktop-video" autoplay playsinline muted tabindex="0" aria-label="Remote Mac desktop"></video>
+    <div class="row remote-keys" aria-label="Touch controls">
+      <button data-remote-key="KeyW">W</button><button data-remote-key="KeyA">A</button>
+      <button data-remote-key="KeyS">S</button><button data-remote-key="KeyD">D</button>
+      <button data-remote-key="Space">Jump</button><button data-remote-key="ShiftLeft">Shift</button>
+      <button data-remote-key="Escape">Esc</button><button data-remote-key="Enter">Enter</button>
+    </div>
+    <label class="field">Mobile keyboard
+      <input id="desktop-text" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type on the remote Mac">
+    </label>
+  </section>
   <!-- ------------------------------------------------------------ setup -->
   <section class="panel active" id="tab-setup">
     <div class="cards">
@@ -177,5 +196,6 @@ print("whoisauto attached:", Players.LocalPlayer.Name, game.PlaceId)</textarea>
   </section>
 </main>
 <script src="/static/app.js"></script>
+<script src="/static/desktop.js"></script>
 </body>
 </html>

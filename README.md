@@ -89,7 +89,7 @@ stopped. Opening or restarting requires a saved account unless direct Mac sign-i
 
 If Roblox rejects a copied desktop cookie on the runner, use **Sign in on this Mac**.
 It opens Roblox's own sign-in window without transferring a cookie. Complete sign-in
-and any security verification on the Sunshine desktop. Open and Restart then reuse
+and any security verification on the remote desktop. Open and Restart then reuse
 the local Player session. **Sign in & open Roblox** remains the explicit cookie flow.
 HTTP 401, HTTP 403, CSRF failures, and security challenges have separate error details;
 provider codes are reported without cookie or challenge-token values.
@@ -182,3 +182,32 @@ starting the panel, and checking the tunnel. Startup verifies the new panel's PI
 local authentication before opening a tunnel. When no account is saved, provisioning
 closes any Player window opened by the installer; saving a cookie opens Roblox with
 that account. The live duration must be 1–350 minutes.
+
+## WebRTC desktop
+
+The `stream.yml` workflow now runs the Mac desktop through the panel's **Desktop**
+tab. Sunshine, Tailscale, and an SSH connection are not needed by the viewer.
+Chrome on Android and Safari on iPhone can receive baseline H.264 and send pointer,
+keyboard, and touch-button input. The host uses AVFoundation screen capture and
+VideoToolbox hardware encoding at 1280×720, 60 fps, and 6 Mbps. A one-frame capture
+queue drops old frames instead of building delay. This first desktop path sends
+video and input; system audio is not yet implemented.
+
+Cloudflared exposes the authenticated panel and signaling. WebRTC media uses ICE
+direct connections or TURN, outside the HTTP tunnel. Configure GitHub repository
+secrets `WHOISAUTO_TURN_URL`, `WHOISAUTO_TURN_USERNAME`, and
+`WHOISAUTO_TURN_CREDENTIAL`. The same environment variables configure local runs.
+The browser reports the selected route, round-trip time, frame rate, and received
+bitrate. Actual latency depends on the network and relay location.
+
+For local macOS hosting, install `gstreamer`, `pygobject3`, and Python with Homebrew.
+Run the panel using that Python so it can load GStreamer bindings. Allow Screen
+Recording for the capture process and Accessibility for `desktop-input` in macOS
+Privacy & Security. The host reports missing permissions rather than accepting
+input that the OS will discard. Disconnect or loss of the session releases held
+keys and mouse buttons; abandoned sessions stop after 20 seconds.
+
+The `webrtc-check.yml` workflow receives actual synthetic H.264 frames and checks
+an authenticated TURN allocation. It also checks macOS capture/encoding plugins
+and compiles the native input helper. The synthetic check uses `aiortc` as a test
+receiver, which is not a panel runtime dependency.
