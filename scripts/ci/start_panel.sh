@@ -50,6 +50,22 @@ local_code=$(curl -s --max-time 30 -o /dev/null -w "%{http_code}" \
 anon_code=$(curl -s --max-time 30 -o /dev/null -w "%{http_code}" "http://127.0.0.1:$panel_port/api/state" || true)
 [ "$anon_code" = "401" ] || { echo "panel is exposed without auth (HTTP $anon_code)"; exit 1; }
 
+python - "$panel_port" <<'PY'
+import json, os, sys, urllib.request
+base = "http://127.0.0.1:" + sys.argv[1]
+headers = {"Authorization": "Bearer " + os.environ["WHOISAUTO_ACCESS_TOKEN"]}
+with urllib.request.urlopen(urllib.request.Request(base + "/api/state", headers=headers), timeout=30) as response:
+    state = json.load(response)
+if (state.get("darwin") and state.get("install", {}).get("roblox", {}).get("available")
+        and not state.get("account", {}).get("signed_in")):
+    request = urllib.request.Request(base + "/api/roblox/stop", data=b"{}", headers=headers, method="POST")
+    with urllib.request.urlopen(request, timeout=120) as response:
+        result = json.load(response)
+    if not result.get("ok"):
+        raise SystemExit("Could not stop Roblox before account login")
+    print("Roblox is closed until an account cookie is saved.")
+PY
+
 if ! command -v cloudflared >/dev/null 2>&1; then brew install cloudflared; fi
 cloudflared tunnel --url "http://127.0.0.1:$panel_port" --no-autoupdate > /tmp/cloudflared.log 2>&1 &
 tunnel_pid=$!

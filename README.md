@@ -171,4 +171,6 @@ runner — it is not a permanent deployment.
 
 The live and streaming workflows share `scripts/ci/` helpers for installing apps,
 starting the panel, and checking the tunnel. Startup verifies the new panel's PID and
-local authentication before opening a tunnel. The live duration must be 1–350 minutes.
+local authentication before opening a tunnel. When no account is saved, provisioning
+closes any Player window opened by the installer; saving a cookie opens Roblox with
+that account. The live duration must be 1–350 minutes.
