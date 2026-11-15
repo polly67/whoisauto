@@ -24,6 +24,7 @@ jobs:
       - name: Receive actual H.264 WebRTC frames
         run: .test-rtc/bin/python scripts/bench/webrtc_smoke.py
       - name: Allocate an authenticated TURN relay
+        if: always()
         env:
           WHOISAUTO_TURN_URL: ${{ secrets.WHOISAUTO_TURN_URL }}
           WHOISAUTO_TURN_USERNAME: ${{ secrets.WHOISAUTO_TURN_USERNAME }}

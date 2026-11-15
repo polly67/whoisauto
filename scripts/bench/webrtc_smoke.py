@@ -29,6 +29,8 @@ async def run():
             await client.setLocalDescription(await client.createOffer())
             answer = await asyncio.to_thread(desktop.offer,
                 {"type": "offer", "sdp": client.localDescription.sdp}, test=True)
+            print(json.dumps({"answer_media": [line for line in answer["sdp"].splitlines()
+                if line.startswith(("m=", "a=send", "a=recv", "a=inactive", "a=rtpmap", "a=fmtp", "a=setup"))]}))
             await client.setRemoteDescription(RTCSessionDescription(sdp=answer["sdp"], type="answer"))
             video = await asyncio.wait_for(track, timeout=15)
             frame = await asyncio.wait_for(video.recv(), timeout=20)
