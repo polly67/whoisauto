@@ -17,9 +17,10 @@ from .service import OpomService, ServiceError
 
 
 class PlayerError(RuntimeError):
-    def __init__(self, status: int, code: str, message: str):
+    def __init__(self, status: int, code: str, message: str, **details):
         self.status = status
         self.code = code
+        self.details = details
         super().__init__(message)
 
 
@@ -82,7 +83,7 @@ class PlayerControls:
         try:
             ticket = roblox.authentication_ticket(token)
         except roblox.RobloxError as error:
-            raise PlayerError(error.status or 502, error.code, str(error)) from None
+            raise PlayerError(error.status or 502, error.code, str(error), **error.details) from None
         stopped = self._stop()
         instance = self._launch(ticket)
         self._session = (hashlib.sha256(token.encode("utf-8")).digest(), instance["pid"])

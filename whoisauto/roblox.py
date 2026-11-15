@@ -17,11 +17,33 @@ TIMEOUT = 10
 
 
 class RobloxError(RuntimeError):
-    def __init__(self, code: str, message: str, status: int = 0):
+    def __init__(self, code: str, message: str, status: int = 0, **details):
         self.code = code
         self.message = message
         self.status = status
+        self.details = details
         super().__init__(message)
+
+
+def _http_failure(error: urllib.error.HTTPError, stage: str) -> tuple[dict, bool]:
+    """Keep provider codes and flags, never response bodies or secret headers."""
+    codes = []
+    csrf_failed = False
+    try:
+        body = json.loads(error.read(8192))
+        errors = body.get("errors", []) if isinstance(body, dict) else []
+        if isinstance(errors, list):
+            for item in errors[:4]:
+                if not isinstance(item, dict):
+                    continue
+                if type(item.get("code")) is int:
+                    codes.append(item["code"])
+                if item.get("message") == "Token Validation Failed":
+                    csrf_failed = True
+    except (ValueError, OSError):
+        pass
+    return {"stage": stage, "upstream_status": error.code, "upstream_codes": codes,
+            "challenge_required": bool(error.headers.get("rblx-challenge-id"))}, csrf_failed
 
 
 def normalize_token(raw: str) -> str:
@@ -57,10 +79,16 @@ def _get(url: str, token: str | None = None) -> dict:
                 raise RobloxError("roblox_bad_response", "Roblox returned an invalid JSON object")
             return value
     except urllib.error.HTTPError as error:
-        if error.code in (401, 403):
-            raise RobloxError("unauthorized", "Roblox rejected the token; sign in again and re-copy it",
-                              error.code) from None
-        raise RobloxError("roblox_http_error", f"Roblox returned HTTP {error.code}", error.code) from None
+        with error:
+            details, _ = _http_failure(error, "account_validation" if "users.roblox.com/" in url else "lookup")
+            if error.code == 401:
+                raise RobloxError("unauthorized", "Roblox could not authenticate this cookie (HTTP 401)",
+                                  error.code, **details) from None
+            if error.code == 403:
+                raise RobloxError("roblox_forbidden", "Roblox blocked account access (HTTP 403)",
+                                  error.code, **details) from None
+            raise RobloxError("roblox_http_error", f"Roblox returned HTTP {error.code}",
+                              error.code, **details) from None
     except (urllib.error.URLError, TimeoutError) as error:
         raise RobloxError("roblox_unreachable", f"Could not reach Roblox: {error}") from None
     except ValueError:
@@ -94,14 +122,27 @@ def authentication_ticket(token: str) -> str:
         except urllib.error.HTTPError as error:
             with error:
                 csrf = error.headers.get("x-csrf-token")
-                if attempt == 0 and error.code == 403 and csrf:
+                challenge = bool(error.headers.get("rblx-challenge-id"))
+                if attempt == 0 and error.code == 403 and csrf and not challenge:
                     headers["X-CSRF-TOKEN"] = csrf
                     continue
-                if error.code in (401, 403):
-                    raise RobloxError("unauthorized", "Roblox rejected the login; refresh the account cookie",
-                                      error.code) from None
+                details, csrf_failed = _http_failure(error, "launch_ticket")
+                if error.code == 401:
+                    raise RobloxError("unauthorized", "Roblox could not authenticate the cookie for Player login (HTTP 401)",
+                                      error.code, **details) from None
+                if error.code == 403:
+                    if challenge:
+                        raise RobloxError("login_verification_required",
+                                          "Roblox requires a security check for Player login; sign in directly on the runner",
+                                          error.code, **details) from None
+                    if csrf_failed:
+                        raise RobloxError("csrf_rejected", "Roblox rejected the login request's CSRF token after retry",
+                                          error.code, **details) from None
+                    suffix = "; provider codes: " + ", ".join(map(str, details["upstream_codes"])) if details["upstream_codes"] else ""
+                    raise RobloxError("ticket_forbidden", "Roblox blocked the Player launch-ticket request (HTTP 403" + suffix + ")",
+                                      error.code, **details) from None
                 raise RobloxError("roblox_http_error", f"Roblox login returned HTTP {error.code}",
-                                  error.code) from None
+                                  error.code, **details) from None
         except (urllib.error.URLError, TimeoutError):
             raise RobloxError("roblox_unreachable", "Could not reach Roblox to obtain a launch ticket", 503) from None
     raise RobloxError("ticket_unavailable", "Roblox did not issue a launch ticket", 502)

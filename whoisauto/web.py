@@ -222,7 +222,8 @@ class Panel:
             token = roblox.normalize_token(body.get("token", ""))
             user = roblox.validate_token(token)
         except roblox.RobloxError as error:
-            raise PanelError(400 if error.code == "invalid_token" else 401, error.code, error.message) from None
+            raise PanelError(400 if error.code == "invalid_token" else error.status or 502,
+                             error.code, error.message, **error.details) from None
         record = save_account(self.paths, token, user)
         account = public_account(record)
         result = {"ok": True, "account": account}
@@ -232,7 +233,7 @@ class Panel:
                 result["player"] = self.player.restart(token)
             except PlayerError as error:
                 raise PanelError(error.status, error.code, "Account saved, but " + str(error),
-                                 account=account) from None
+                                 account=account, **error.details) from None
             self._last_place = self._last_port = None
         return result
 
@@ -416,7 +417,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(error.status, {"ok": False, "error": error.code, "message": error.message,
                                           **error.details})
         except PlayerError as error:
-            self.send_json(error.status, {"ok": False, "error": error.code, "message": str(error)})
+            self.send_json(error.status, {"ok": False, "error": error.code, "message": str(error), **error.details})
         except (ServiceError, installer.InstallError) as error:
             code = getattr(error, "code", "install_failed")
             status = 502 if code == "api_bad_response" else 503 if code in ("api_down", "api_unreachable", "api_timeout") else 400

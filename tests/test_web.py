@@ -410,3 +410,22 @@ def test_player_open_requires_saved_account(panel):
     status, payload = call(panel, "POST", "/api/roblox/open", {})
     assert status == 400
     assert payload["error"] == "account_required"
+
+
+def test_ticket_error_details_reach_account_api(panel, monkeypatch):
+    from whoisauto.player import PlayerControls, PlayerError
+
+    monkeypatch.setattr(roblox, "validate_token", lambda token: {"id": 7, "name": "tester"})
+
+    def denied(self, token):
+        raise PlayerError(403, "ticket_forbidden", "Roblox blocked Player login",
+                          stage="launch_ticket", upstream_status=403, upstream_codes=[1])
+
+    monkeypatch.setattr(PlayerControls, "restart", denied)
+    status, payload = call(panel, "POST", "/api/account", {"token": "test-cookie"})
+    assert status == 403
+    assert payload["error"] == "ticket_forbidden"
+    assert payload["stage"] == "launch_ticket"
+    assert payload["upstream_codes"] == [1]
+    assert payload["account"]["signed_in"] is True
+    assert "test-cookie" not in json.dumps(payload)
