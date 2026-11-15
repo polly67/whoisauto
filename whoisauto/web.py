@@ -230,7 +230,7 @@ class Panel:
         if launch:
             self.autoexec.cancel()
             try:
-                result["player"] = self.player.restart(token)
+                result["player"] = self.player.sign_in(token)
             except PlayerError as error:
                 raise PanelError(error.status, error.code, "Account saved, but " + str(error),
                                  account=account, **error.details) from None
@@ -238,17 +238,19 @@ class Panel:
         return result
 
     def player_action(self, action: str) -> dict:
-        if action == "stop":
+        if action == "login":
+            result = self.player.open_login()
+        elif action == "stop":
             self.autoexec.cancel()
             result = self.player.stop()
         else:
             account = load_account(self.paths)
-            if not account:
+            if not account and not self.player.manual:
                 raise PanelError(400, "account_required", "Save a Roblox account cookie first")
             if action == "restart":
                 self.autoexec.cancel()
             operation = self.player.restart if action == "restart" else self.player.open
-            result = operation(account["token"])
+            result = operation((account or {}).get("token", ""))
         if action in ("stop", "restart"):
             self._last_place = self._last_port = None
         return result
@@ -464,7 +466,7 @@ class Handler(BaseHTTPRequestHandler):
             return 200, panel.start_service(body)
         if method == "POST" and path == "/api/service/stop":
             return 200, panel.stop_service()
-        if method == "POST" and path in ("/api/roblox/open", "/api/roblox/restart", "/api/roblox/stop"):
+        if method == "POST" and path in ("/api/roblox/open", "/api/roblox/restart", "/api/roblox/stop", "/api/roblox/login"):
             return 200, panel.player_action(path.rsplit("/", 1)[1])
         if method == "GET" and path == "/api/account":
             return 200, {"ok": True, "account": public_account(load_account(panel.paths))}

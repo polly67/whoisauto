@@ -361,7 +361,7 @@ def test_saving_cookie_restarts_player_after_verification(paths, monkeypatch):
         return {"ok": True, "instance": {"port": 8390, "pid": 20}}
 
     monkeypatch.setattr(roblox, "validate_token", validate)
-    monkeypatch.setattr(panel.player, "restart", restart)
+    monkeypatch.setattr(panel.player, "sign_in", restart)
     result = panel.set_account({"token": "test-cookie"})
     assert events == ["verify", "restart"]
     assert result["player"]["instance"]["pid"] == 20
@@ -378,7 +378,7 @@ def test_failed_player_login_keeps_verified_account(paths, monkeypatch):
     def fail(token):
         raise PlayerError(502, "player_launch_failed", "Could not open Roblox")
 
-    monkeypatch.setattr(panel.player, "restart", fail)
+    monkeypatch.setattr(panel.player, "sign_in", fail)
     with pytest.raises(PanelError) as error:
         panel.set_account({"token": "test-cookie"})
     assert load_account(paths)["token"] == "test-cookie"
@@ -421,7 +421,7 @@ def test_ticket_error_details_reach_account_api(panel, monkeypatch):
         raise PlayerError(403, "ticket_forbidden", "Roblox blocked Player login",
                           stage="launch_ticket", upstream_status=403, upstream_codes=[1])
 
-    monkeypatch.setattr(PlayerControls, "restart", denied)
+    monkeypatch.setattr(PlayerControls, "sign_in", denied)
     status, payload = call(panel, "POST", "/api/account", {"token": "test-cookie"})
     assert status == 403
     assert payload["error"] == "ticket_forbidden"
@@ -429,3 +429,12 @@ def test_ticket_error_details_reach_account_api(panel, monkeypatch):
     assert payload["upstream_codes"] == [1]
     assert payload["account"]["signed_in"] is True
     assert "test-cookie" not in json.dumps(payload)
+
+
+def test_manual_login_route_does_not_require_saved_cookie(panel, monkeypatch):
+    from whoisauto.player import PlayerControls
+    monkeypatch.setattr(PlayerControls, "open_login", lambda self: {
+        "ok": True, "manual_sign_in": True, "instance": {"pid": 20, "port": None}})
+    status, payload = call(panel, "POST", "/api/roblox/login", {})
+    assert status == 200
+    assert payload["manual_sign_in"] is True

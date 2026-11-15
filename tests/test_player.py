@@ -147,3 +147,40 @@ def test_opening_home_window_without_port_is_not_login_failure(controls, monkeyp
     monkeypatch.setattr(player.time, "monotonic", lambda: next(clock))
     monkeypatch.setattr(player.time, "sleep", lambda delay: None)
     assert player.PlayerControls._launch(controls, "test-ticket") == {"pid": 20, "port": None}
+
+
+def test_manual_sign_in_does_not_request_or_transfer_cookie(controls, monkeypatch):
+    def ticket(token):
+        raise AssertionError("Manual sign-in must not request a cookie ticket")
+
+    monkeypatch.setattr(player.roblox, "authentication_ticket", ticket)
+    requested = []
+    monkeypatch.setattr(controls, "_launch", lambda ticket: requested.append(ticket) or {"pid": 20, "port": None})
+    assert controls.open_login()["manual_sign_in"] is True
+    assert requested == [None]
+    assert controls.manual is True
+    assert controls.restart("")["manual_sign_in"] is True
+    assert requested == [None, None]
+
+
+def test_cookie_sign_in_is_explicit_after_manual_login(controls, monkeypatch):
+    controls.open_login()
+    requested = []
+    monkeypatch.setattr(player.roblox, "authentication_ticket", lambda token: requested.append(token) or "ticket")
+    controls.sign_in("new-cookie")
+    assert requested == ["new-cookie"]
+    assert controls.manual is False
+
+
+def test_native_manual_login_uses_no_ticket(controls, monkeypatch):
+    commands = []
+
+    def run(command, **options):
+        commands.append((command, options))
+        controls.service.instances = [{"pid": 20, "port": 8391}]
+        return SimpleNamespace(returncode=0, stdout='{"pid":20}', stderr="")
+
+    monkeypatch.setattr(player.subprocess, "run", run)
+    player.PlayerControls._launch(controls, None)
+    assert commands[0][0][1] == "login"
+    assert commands[0][1]["input"] == ""

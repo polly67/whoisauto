@@ -190,3 +190,15 @@ test("Restart Roblox sends a control request without the account cookie", async 
   await elements.get("restart-roblox").click();
   assert.deepEqual(requests[0], { url: "/api/roblox/restart", body: "{}" });
 });
+
+test("direct Mac sign-in opens a login window without sending a cookie", async () => {
+  const { context, elements } = await panel();
+  const requests = [];
+  context.fetch = async (url, options) => {
+    requests.push({ url, body: options.body });
+    return response({ manual_sign_in: true, instance: { pid: 20, port: null } });
+  };
+  await elements.get("login-roblox").click();
+  assert.deepEqual(requests[0], { url: "/api/roblox/login", body: "{}" });
+  assert.match(elements.get("account-log").textContent, /Complete sign-in in its window/);
+});

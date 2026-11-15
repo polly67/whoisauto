@@ -85,7 +85,14 @@ If launch fails after account verification, the saved cookie remains available a
 the panel reports the failure. Use Open Roblox to reopen it, Restart Roblox to replace
 running Player instances, or Stop Roblox to close them. Controls also handle the home
 window before an execution port exists. Only verified patched Roblox app paths are
-stopped. Opening or restarting requires a saved account.
+stopped. Opening or restarting requires a saved account unless direct Mac sign-in is selected.
+
+If Roblox rejects a copied desktop cookie on the runner, use **Sign in on this Mac**.
+It opens Roblox's own sign-in window without transferring a cookie. Complete sign-in
+and any security verification on the Sunshine desktop. Open and Restart then reuse
+the local Player session. **Sign in & open Roblox** remains the explicit cookie flow.
+HTTP 401, HTTP 403, CSRF failures, and security challenges have separate error details;
+provider codes are reported without cookie or challenge-token values.
 
 **Join / Execute / Players** proxy opom's `/join`, `/check`, `/execute`, `/instances`
 and `/runtime`. Join waits for the place id to match and the client to report
@@ -100,6 +107,7 @@ and `/runtime`. Join waits for the place id to match and the client to report
 | POST | `/api/service/start` \| `/stop` | opom lifecycle |
 | GET/POST/DELETE | `/api/account` | read, verify+save+open Roblox, clear the token; POST `launch: false` saves without opening |
 | POST | `/api/roblox/open` \| `/restart` \| `/stop` | open with the saved account, restart controlled Players, stop controlled Players |
+| POST | `/api/roblox/login` | open Roblox's native sign-in window; no saved cookie required |
 | POST | `/api/join` | `{place_id, game_instance_id?, wait?}` |
 | POST | `/api/check` \| `/api/execute` | `{script, wait?, timeout?, check?}` |
 | GET | `/api/players` | instances + runtime, optional `?place_id=` |

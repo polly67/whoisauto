@@ -217,7 +217,7 @@ $("stop-api").addEventListener("click", () => serviceAction("/api/service/stop",
 
 /* ---------------------------------------------------------------- account */
 
-const accountControls = ["save-token", "clear-token", "open-roblox", "restart-roblox", "stop-roblox"];
+const accountControls = ["save-token", "clear-token", "open-roblox", "restart-roblox", "stop-roblox", "login-roblox"];
 
 function playerOpened(result) {
   const port = result.instance?.port;
@@ -260,7 +260,9 @@ $("clear-token").addEventListener("click", () => action(accountControls,
 function playerAction(operation, pending) {
   return action(accountControls, "account-log", pending, async () => {
     const result = await api(`/api/roblox/${operation}`, { method: "POST", body: "{}", timeout: 240000 });
-    log("account-log", operation === "stop"
+    log("account-log", operation === "login"
+      ? "Roblox is open. Complete sign-in in its window on this Mac; you can use the Sunshine desktop."
+      : operation === "stop"
       ? `Stopped ${result.stopped.length} Roblox Player instance(s).`
       : result.reused ? `Roblox is already running on port ${result.instance.port}.`
       : playerOpened(result), "ok");
@@ -269,6 +271,7 @@ function playerAction(operation, pending) {
 $("open-roblox").addEventListener("click", () => playerAction("open", "Opening Roblox…"));
 $("restart-roblox").addEventListener("click", () => playerAction("restart", "Restarting Roblox with the saved account…"));
 $("stop-roblox").addEventListener("click", () => playerAction("stop", "Stopping Roblox…"));
+$("login-roblox").addEventListener("click", () => playerAction("login", "Opening Roblox's sign-in window…"));
 
 /* ------------------------------------------------------------------- join */
 

@@ -31,6 +31,7 @@ class PlayerControls:
         self._lock = threading.Lock()
         self._session: tuple[bytes, int] | None = None
         self._before_stop = before_stop or (lambda: None)
+        self.manual = False
 
     def _ensure_service(self) -> None:
         if sys.platform != "darwin":
@@ -61,6 +62,8 @@ class PlayerControls:
     def open(self, token: str) -> dict:
         with self._lock:
             self._ensure_service()
+            if self.manual:
+                return {"ok": True, "reused": False, "manual_sign_in": True, "instance": self._launch(None)}
             existing = self._instances()
             fingerprint = hashlib.sha256(token.encode("utf-8")).digest()
             if self._session and self._session[0] == fingerprint:
@@ -72,7 +75,30 @@ class PlayerControls:
     def restart(self, token: str) -> dict:
         with self._lock:
             self._ensure_service()
+            if self.manual:
+                stopped = self._stop()
+                return {"ok": True, "reused": False, "stopped": stopped,
+                        "manual_sign_in": True, "instance": self._launch(None)}
             return self._start(token)
+
+    def sign_in(self, token: str) -> dict:
+        """Explicit cookie login remains distinct from a local Player session."""
+        with self._lock:
+            self._ensure_service()
+            result = self._start(token)
+            self.manual = False
+            return result
+
+    def open_login(self) -> dict:
+        with self._lock:
+            self._ensure_service()
+            try:
+                installer.verify_app(self.paths.roblox_app, require_loader=True)
+            except installer.InstallError as error:
+                raise PlayerError(400, "app_missing", str(error)) from None
+            instance = self._launch(None)
+            self.manual = True
+            return {"ok": True, "reused": False, "manual_sign_in": True, "instance": instance}
 
     def _start(self, token: str) -> dict:
         try:
@@ -126,7 +152,7 @@ class PlayerControls:
     def _helper(self) -> Path:
         source = Path(__file__).resolve().parent / "native" / "open_roblox.swift"
         binary = self.paths.opom_state / "whoisauto-open-roblox"
-        if binary.is_file():
+        if binary.is_file() and binary.stat().st_mtime >= source.stat().st_mtime:
             return binary
         self.paths.opom_state.mkdir(parents=True, exist_ok=True)
         try:
@@ -138,18 +164,18 @@ class PlayerControls:
             raise PlayerError(502, "helper_build_failed", "Could not build the macOS Roblox launcher")
         return binary
 
-    def _launch(self, ticket: str) -> dict:
+    def _launch(self, ticket: str | None) -> dict:
         url = ("roblox-player:1+launchmode:app+gameinfo:" + urllib.parse.quote(ticket, safe="")
-               + "+robloxLocale:en_us+gameLocale:en_us+channel:+LaunchExp:InApp")
+               + "+robloxLocale:en_us+gameLocale:en_us+channel:+LaunchExp:InApp") if ticket else ""
         try:
-            result = subprocess.run([str(self._helper()), "open", str(self.paths.roblox_app),
+            result = subprocess.run([str(self._helper()), "open" if ticket else "login", str(self.paths.roblox_app),
                                      str(self.paths.opom_state / "players")],
                                     input=url, capture_output=True, text=True, timeout=30)
         except (OSError, subprocess.TimeoutExpired):
             raise PlayerError(502, "player_launch_failed", "Roblox did not open; try Restart Roblox") from None
         if result.returncode:
             # Native errors may echo a URL containing the one-use ticket.
-            raise PlayerError(502, "player_launch_failed", "Roblox did not accept the login launch")
+            raise PlayerError(502, "player_launch_failed", "Roblox did not open the requested login window")
         try:
             pid = json.loads(result.stdout)["pid"]
             if type(pid) is not int or pid <= 0:

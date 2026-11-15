@@ -39,12 +39,20 @@ if operation == "stop" {
     exit(0)
 }
 
-guard operation == "open",
-      let input = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8),
-      let link = URL(string: input.trimmingCharacters(in: .whitespacesAndNewlines)),
-      link.scheme == "roblox-player" else {
+guard operation == "open" || operation == "login" else {
     fputs("Invalid Roblox launch request\n", stderr)
     exit(2)
+}
+var link: URL?
+if operation == "open" {
+    guard
+      let input = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8),
+      let requested = URL(string: input.trimmingCharacters(in: .whitespacesAndNewlines)),
+      requested.scheme == "roblox-player" else {
+        fputs("Invalid Roblox launch request\n", stderr)
+        exit(2)
+    }
+    link = requested
 }
 let configuration = NSWorkspace.OpenConfiguration()
 configuration.createsNewApplicationInstance = false
@@ -52,7 +60,7 @@ configuration.allowsRunningApplicationSubstitution = false
 configuration.activates = true
 var finished = false
 var result: Int32 = 1
-NSWorkspace.shared.open([link], withApplicationAt: app, configuration: configuration) { application, error in
+let completion: (NSRunningApplication?, Error?) -> Void = { application, error in
     defer { finished = true }
     guard error == nil, let application = application,
           application.bundleURL?.resolvingSymlinksInPath() == app else {
@@ -62,6 +70,11 @@ NSWorkspace.shared.open([link], withApplicationAt: app, configuration: configura
     }
     print("{\"pid\":\(application.processIdentifier)}")
     result = 0
+}
+if let link = link {
+    NSWorkspace.shared.open([link], withApplicationAt: app, configuration: configuration, completionHandler: completion)
+} else {
+    NSWorkspace.shared.openApplication(at: app, configuration: configuration, completionHandler: completion)
 }
 let deadline = Date().addingTimeInterval(20)
 while !finished && Date() < deadline {
