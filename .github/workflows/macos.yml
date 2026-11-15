@@ -39,6 +39,15 @@ jobs:
           node --test tests/test_app.js
           bash -n scripts/ci/install_apps.sh scripts/ci/start_panel.sh scripts/ci/check_panel.sh
 
+      - name: Compile the authenticated Roblox launcher
+        run: |
+          xcrun swiftc whoisauto/native/open_roblox.swift -O -o /tmp/whoisauto-open-roblox
+          /tmp/whoisauto-open-roblox stop /tmp/whoisauto-empty-Roblox.app /tmp/whoisauto-empty-players > /tmp/player-stop.json
+          python - <<'PY'
+          import json
+          assert json.load(open("/tmp/player-stop.json"))["stopped_pids"] == []
+          PY
+
       - name: Start opom
         run: |
           python -m whoisauto start --opom-port 8765

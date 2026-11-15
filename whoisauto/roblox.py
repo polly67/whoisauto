@@ -1,8 +1,8 @@
 """Roblox account token handling and public place lookups.
 
 The token is the ``.ROBLOSECURITY`` value from an already signed-in browser
-session. It is used for two things only: confirming which account is signed in,
-and authenticated place/server queries. It never leaves this machine except to
+session. It verifies the account, authenticates place/server queries, and obtains
+a short-lived Player launch ticket. It never leaves this machine except to
 roblox.com, and it is stored with 0600 permissions.
 """
 
@@ -74,6 +74,37 @@ def validate_token(token: str) -> dict:
         raise RobloxError("unauthorized", "Roblox did not return an account for this token", 401)
     return {"id": user["id"], "name": user.get("name"), "display_name": user.get("displayName"),
             "masked": mask(token)}
+
+
+def authentication_ticket(token: str) -> str:
+    """Exchange a cookie for a short-lived native Player launch ticket."""
+    token = normalize_token(token)
+    headers = {"Cookie": ".ROBLOSECURITY=" + token, "Content-Type": "application/json",
+               "Accept": "application/json", "User-Agent": USER_AGENT,
+               "Origin": "https://www.roblox.com", "Referer": "https://www.roblox.com/"}
+    url = "https://auth.roblox.com/v1/authentication-ticket/"
+    for attempt in range(2):
+        request = urllib.request.Request(url, data=b"{}", headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+                ticket = response.headers.get("rbx-authentication-ticket")
+                if ticket and ticket.strip():
+                    return ticket.strip()
+                raise RobloxError("ticket_unavailable", "Roblox did not issue a launch ticket", 502)
+        except urllib.error.HTTPError as error:
+            with error:
+                csrf = error.headers.get("x-csrf-token")
+                if attempt == 0 and error.code == 403 and csrf:
+                    headers["X-CSRF-TOKEN"] = csrf
+                    continue
+                if error.code in (401, 403):
+                    raise RobloxError("unauthorized", "Roblox rejected the login; refresh the account cookie",
+                                      error.code) from None
+                raise RobloxError("roblox_http_error", f"Roblox login returned HTTP {error.code}",
+                                  error.code) from None
+        except (urllib.error.URLError, TimeoutError):
+            raise RobloxError("roblox_unreachable", "Could not reach Roblox to obtain a launch ticket", 503) from None
+    raise RobloxError("ticket_unavailable", "Roblox did not issue a launch ticket", 502)
 
 
 def universe_for_place(place_id: int) -> int:

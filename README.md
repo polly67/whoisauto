@@ -73,8 +73,19 @@ local-dev port, so instead of letting `opom serve` die on a bind error the panel
 **Account** (`whoisauto/roblox.py`) normalises the pasted `.ROBLOSECURITY` value
 (prefixes and quotes are stripped), validates it against `users.roblox.com`, and stores
 it in `runtime/state/account.json` with `0600` permissions. It is used for account
-verification and authenticated place/server queries. It is never logged, never returned
+verification, authenticated place/server queries, and Player login. It is never logged, never returned
 by the API, and never written into git.
+
+**Account login / Player controls** (`whoisauto/player.py`) exchange the saved cookie
+for a short-lived Roblox launch ticket. Saving a cookie obtains the ticket before
+closing current Player instances, then opens the patched app through macOS
+LaunchServices. A failed ticket request leaves the current Player running. The ticket
+travels to the native helper through stdin and is never returned by the panel.
+If launch fails after account verification, the saved cookie remains available and
+the panel reports the failure. Use Open Roblox to reopen it, Restart Roblox to replace
+running Player instances, or Stop Roblox to close them. Controls also handle the home
+window before an execution port exists. Only verified patched Roblox app paths are
+stopped. Opening or restarting requires a saved account.
 
 **Join / Execute / Players** proxy opom's `/join`, `/check`, `/execute`, `/instances`
 and `/runtime`. Join waits for the place id to match and the client to report
@@ -87,7 +98,8 @@ and `/runtime`. Join waits for the place id to match and the client to report
 | GET | `/api/state` | platform, service status, install state, account |
 | POST | `/api/install` | `{editor_source, roblox_source, launch}` |
 | POST | `/api/service/start` \| `/stop` | opom lifecycle |
-| GET/POST/DELETE | `/api/account` | read, verify+save, clear the token |
+| GET/POST/DELETE | `/api/account` | read, verify+save+open Roblox, clear the token; POST `launch: false` saves without opening |
+| POST | `/api/roblox/open` \| `/restart` \| `/stop` | open with the saved account, restart controlled Players, stop controlled Players |
 | POST | `/api/join` | `{place_id, game_instance_id?, wait?}` |
 | POST | `/api/check` \| `/api/execute` | `{script, wait?, timeout?, check?}` |
 | GET | `/api/players` | instances + runtime, optional `?place_id=` |

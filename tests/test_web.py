@@ -68,7 +68,7 @@ def test_account_roundtrip(panel, paths, monkeypatch):
     monkeypatch.setattr("whoisauto.web.roblox.validate_token",
                         lambda token: {"id": 7, "name": "tester", "display_name": "Tester",
                                        "masked": roblox.mask(token)})
-    status, payload = call(panel, "POST", "/api/account", {"token": ".ROBLOSECURITY=abc123"})
+    status, payload = call(panel, "POST", "/api/account", {"token": ".ROBLOSECURITY=abc123", "launch": False})
     assert status == 200
     assert payload["account"]["user"]["name"] == "tester"
 
@@ -345,3 +345,68 @@ def test_run_now_targets_the_last_joined_instance(paths, monkeypatch):
     panel.join({"place_id": 42, "port": 8391})
     panel.run_autoexec()
     assert calls == [("join", 42, 8391), ("manual", 42, 8391)]
+
+
+def test_saving_cookie_restarts_player_after_verification(paths, monkeypatch):
+    panel = Panel(paths)
+    events = []
+
+    def validate(token):
+        events.append("verify")
+        return {"id": 7, "name": "tester"}
+
+    def restart(token):
+        events.append("restart")
+        assert load_account(paths)["token"] == token
+        return {"ok": True, "instance": {"port": 8390, "pid": 20}}
+
+    monkeypatch.setattr(roblox, "validate_token", validate)
+    monkeypatch.setattr(panel.player, "restart", restart)
+    result = panel.set_account({"token": "test-cookie"})
+    assert events == ["verify", "restart"]
+    assert result["player"]["instance"]["pid"] == 20
+    assert "test-cookie" not in json.dumps(result)
+
+
+def test_failed_player_login_keeps_verified_account(paths, monkeypatch):
+    from whoisauto.player import PlayerError
+    from whoisauto.web import PanelError
+
+    panel = Panel(paths)
+    monkeypatch.setattr(roblox, "validate_token", lambda token: {"id": 7, "name": "tester"})
+
+    def fail(token):
+        raise PlayerError(502, "player_launch_failed", "Could not open Roblox")
+
+    monkeypatch.setattr(panel.player, "restart", fail)
+    with pytest.raises(PanelError) as error:
+        panel.set_account({"token": "test-cookie"})
+    assert load_account(paths)["token"] == "test-cookie"
+    assert error.value.details["account"]["signed_in"] is True
+    assert "test-cookie" not in json.dumps(error.value.details)
+    assert "Account saved" in str(error.value)
+
+
+@pytest.mark.parametrize("route,method", [("open", "open"), ("restart", "restart"), ("stop", "stop")])
+def test_player_routes_use_saved_cookie(panel, paths, monkeypatch, route, method):
+    from whoisauto.player import PlayerControls
+    from whoisauto.web import save_account
+
+    save_account(paths, "test-cookie", {"id": 7, "name": "tester"})
+    seen = []
+
+    def control(self, *args):
+        seen.append(args)
+        return {"ok": True, "stopped": []}
+
+    monkeypatch.setattr(PlayerControls, method, control)
+    status, payload = call(panel, "POST", f"/api/roblox/{route}", {})
+    assert status == 200
+    expected = [()] if route == "stop" else [("test-cookie",)]
+    assert seen == expected
+
+
+def test_player_open_requires_saved_account(panel):
+    status, payload = call(panel, "POST", "/api/roblox/open", {})
+    assert status == 400
+    assert payload["error"] == "account_required"

@@ -145,3 +145,48 @@ test("editing during an auto-execute save keeps the newer text", async () => {
   await save;
   assert.equal(editor.value, "print('newer')");
 });
+
+test("account login disables Player controls and reports opened Roblox", async () => {
+  const { context, elements } = await panel();
+  elements.get("token").value = "test-cookie";
+  let complete;
+  context.fetch = (url, options) => {
+    if (url === "/api/account") {
+      assert.equal(JSON.parse(options.body).token, "test-cookie");
+      return new Promise((resolve) => { complete = resolve; });
+    }
+    return Promise.resolve(response({ account: { signed_in: true, user: { name: "tester", id: 7 } } }));
+  };
+  const request = elements.get("save-token").click();
+  assert.equal(elements.get("restart-roblox").disabled, true);
+  assert.equal(elements.get("stop-roblox").disabled, true);
+  complete(response({ account: { signed_in: true, user: { name: "tester", id: 7 } },
+                      player: { instance: { port: 8390 } } }));
+  await request;
+  assert.equal(elements.get("token").value, "");
+  assert.match(elements.get("account-log").textContent, /Roblox opened on port 8390/);
+  assert.doesNotMatch(elements.get("account-log").textContent, /test-cookie/);
+  assert.equal(elements.get("restart-roblox").disabled, false);
+});
+
+test("saved account remains visible when Player login fails", async () => {
+  const { context, elements } = await panel();
+  elements.get("token").value = "test-cookie";
+  context.fetch = async () => response({ message: "Account saved, but Roblox could not open",
+    account: { signed_in: true, user: { name: "tester", id: 7 } } }, 502);
+  await elements.get("save-token").click();
+  assert.equal(elements.get("token").value, "");
+  assert.match(elements.get("pill-account").textContent, /tester/);
+  assert.match(elements.get("account-log").textContent, /could not open/);
+});
+
+test("Restart Roblox sends a control request without the account cookie", async () => {
+  const { context, elements } = await panel();
+  const requests = [];
+  context.fetch = async (url, options) => {
+    requests.push({ url, body: options.body });
+    return response({ instance: { port: 8390 }, stopped: [], account: { signed_in: false } });
+  };
+  await elements.get("restart-roblox").click();
+  assert.deepEqual(requests[0], { url: "/api/roblox/restart", body: "{}" });
+});

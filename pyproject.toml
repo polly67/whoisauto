@@ -20,7 +20,7 @@ whoisauto = "whoisauto.cli:main"
 include = ["whoisauto*"]
 
 [tool.setuptools.package-data]
-whoisauto = ["static/*"]
+whoisauto = ["static/*", "native/*.swift"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

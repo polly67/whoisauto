@@ -18,16 +18,18 @@ from . import compiler, installer, roblox
 from .autoexec import AutoExec
 from .config import (ConfigError, DEFAULT_OPOM_PORT, DEFAULT_WEB_PORT, Paths, find_free_port, read_json, write_json)
 from .service import OpomService, ServiceError
+from .player import PlayerControls, PlayerError
 
 STATIC = Path(__file__).resolve().parent / "static"
 BODY_LIMIT = 8 * 1024 * 1024
 
 
 class PanelError(RuntimeError):
-    def __init__(self, status: int, code: str, message: str):
+    def __init__(self, status: int, code: str, message: str, **details):
         self.status = status
         self.code = code
         self.message = message
+        self.details = details
         super().__init__(message)
 
 
@@ -114,6 +116,7 @@ class Panel:
         self.paths = paths
         self.service = service or OpomService(paths)
         self.autoexec = AutoExec(paths, self.service)
+        self.player = PlayerControls(paths, self.service, before_stop=self.autoexec.cancel)
         self._last_place: int | None = None
         self._last_port: int | None = None
 
@@ -214,13 +217,40 @@ class Panel:
         return self.service.stop()
 
     def set_account(self, body: dict) -> dict:
+        launch = _boolean(body, "launch", True)
         try:
             token = roblox.normalize_token(body.get("token", ""))
             user = roblox.validate_token(token)
         except roblox.RobloxError as error:
             raise PanelError(400 if error.code == "invalid_token" else 401, error.code, error.message) from None
         record = save_account(self.paths, token, user)
-        return {"ok": True, "account": public_account(record)}
+        account = public_account(record)
+        result = {"ok": True, "account": account}
+        if launch:
+            self.autoexec.cancel()
+            try:
+                result["player"] = self.player.restart(token)
+            except PlayerError as error:
+                raise PanelError(error.status, error.code, "Account saved, but " + str(error),
+                                 account=account) from None
+            self._last_place = self._last_port = None
+        return result
+
+    def player_action(self, action: str) -> dict:
+        if action == "stop":
+            self.autoexec.cancel()
+            result = self.player.stop()
+        else:
+            account = load_account(self.paths)
+            if not account:
+                raise PanelError(400, "account_required", "Save a Roblox account cookie first")
+            if action == "restart":
+                self.autoexec.cancel()
+            operation = self.player.restart if action == "restart" else self.player.open
+            result = operation(account["token"])
+        if action in ("stop", "restart"):
+            self._last_place = self._last_port = None
+        return result
 
     def join(self, body: dict) -> dict:
         place_id = _integer(body.get("place_id"), "place_id")
@@ -383,7 +413,10 @@ class Handler(BaseHTTPRequestHandler):
             status, payload = self.route(method, path, body, query)
             self.send_json(status, payload)
         except PanelError as error:
-            self.send_json(error.status, {"ok": False, "error": error.code, "message": error.message})
+            self.send_json(error.status, {"ok": False, "error": error.code, "message": error.message,
+                                          **error.details})
+        except PlayerError as error:
+            self.send_json(error.status, {"ok": False, "error": error.code, "message": str(error)})
         except (ServiceError, installer.InstallError) as error:
             code = getattr(error, "code", "install_failed")
             status = 502 if code == "api_bad_response" else 503 if code in ("api_down", "api_unreachable", "api_timeout") else 400
@@ -430,6 +463,8 @@ class Handler(BaseHTTPRequestHandler):
             return 200, panel.start_service(body)
         if method == "POST" and path == "/api/service/stop":
             return 200, panel.stop_service()
+        if method == "POST" and path in ("/api/roblox/open", "/api/roblox/restart", "/api/roblox/stop"):
+            return 200, panel.player_action(path.rsplit("/", 1)[1])
         if method == "GET" and path == "/api/account":
             return 200, {"ok": True, "account": public_account(load_account(panel.paths))}
         if method == "POST" and path == "/api/account":

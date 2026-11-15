@@ -72,14 +72,19 @@
   <!-- ---------------------------------------------------------- account -->
   <section class="panel" id="tab-account">
     <p class="hint">Paste the <code>.ROBLOSECURITY</code> value of a signed-in Roblox session. It is
-      stored locally with 0600 permissions, used to verify the account and to query place servers,
-      and is never written into the repository.</p>
+      stored locally with 0600 permissions and exchanged for a Roblox login ticket.
+      Saving closes running Player instances and opens patched Roblox with the new account.</p>
     <div class="row">
       <input id="token" type="password" autocomplete="off" spellcheck="false" aria-label="Roblox account token" placeholder=".ROBLOSECURITY value">
-      <button class="primary" id="save-token">Verify &amp; save</button>
-      <button id="clear-token">Clear</button>
+      <button class="primary" id="save-token">Sign in &amp; open Roblox</button>
+      <button id="clear-token">Clear saved cookie</button>
     </div>
     <div class="card wide" id="account-card"><p class="muted">No account saved.</p></div>
+    <div class="row">
+      <button id="open-roblox">Open Roblox</button>
+      <button id="restart-roblox">Restart Roblox</button>
+      <button id="stop-roblox">Stop Roblox</button>
+    </div>
     <pre class="log" id="account-log">Ready.</pre>
   </section>
 

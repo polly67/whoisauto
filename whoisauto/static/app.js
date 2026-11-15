@@ -217,29 +217,58 @@ $("stop-api").addEventListener("click", () => serviceAction("/api/service/stop",
 
 /* ---------------------------------------------------------------- account */
 
+const accountControls = ["save-token", "clear-token", "open-roblox", "restart-roblox", "stop-roblox"];
+
+function playerOpened(result) {
+  const port = result.instance?.port;
+  return port ? `Roblox opened on port ${port}.` : "Roblox opened; its execution port is not ready yet.";
+}
+
 $("save-token").addEventListener("click", () => {
   const token = $("token").value.trim();
   if (!token) {
     log("account-log", "Paste a token first.", "err");
     return;
   }
-  return action(["save-token", "clear-token"], "account-log", "Verifying token with Roblox…", async () => {
-    const result = await api("/api/account", {
-      method: "POST",
-      body: JSON.stringify({ token }),
-    });
+  return action(accountControls, "account-log", "Verifying account and opening Roblox…", async () => {
+    let result;
+    try {
+      result = await api("/api/account", {
+        method: "POST", body: JSON.stringify({ token }), timeout: 240000,
+      });
+    } catch (error) {
+      if (error.data?.account) {
+        $("token").value = "";
+        renderAccount(error.data.account);
+      }
+      throw error;
+    }
     $("token").value = "";
-    log("account-log", `Signed in as ${result.account.user.name} (${result.account.user.id}).`, "ok");
+    log("account-log", `Saved ${result.account.user.name} (${result.account.user.id}).` +
+      (result.player ? ` ${playerOpened(result.player)}` : ""), "ok");
     renderAccount(result.account);
-  });
+  }, refreshState);
 });
 
-$("clear-token").addEventListener("click", () => action(["save-token", "clear-token"],
+$("clear-token").addEventListener("click", () => action(accountControls,
   "account-log", "Clearing saved account…", async () => {
     const result = await api("/api/account", { method: "DELETE" });
     renderAccount(result.account);
     log("account-log", "Token removed from local state.", "ok");
   }));
+
+function playerAction(operation, pending) {
+  return action(accountControls, "account-log", pending, async () => {
+    const result = await api(`/api/roblox/${operation}`, { method: "POST", body: "{}", timeout: 240000 });
+    log("account-log", operation === "stop"
+      ? `Stopped ${result.stopped.length} Roblox Player instance(s).`
+      : result.reused ? `Roblox is already running on port ${result.instance.port}.`
+      : playerOpened(result), "ok");
+  }, refreshState);
+}
+$("open-roblox").addEventListener("click", () => playerAction("open", "Opening Roblox…"));
+$("restart-roblox").addEventListener("click", () => playerAction("restart", "Restarting Roblox with the saved account…"));
+$("stop-roblox").addEventListener("click", () => playerAction("stop", "Stopping Roblox…"));
 
 /* ------------------------------------------------------------------- join */
 
