@@ -545,11 +545,13 @@ jobs:
 
       # Must run before the join: the panel arms the worker on /api/join, so a
       # script saved afterwards would not fire until the next join.
+      # Both this and the join talk to the panel over loopback: Tailscale owns
+      # DNS by this point, so the quick tunnel hostname does not resolve here.
       - name: Arm auto exec
         env:
           AUTOEXEC_SCRIPT: ${{ inputs.autoexec_script }}
         run: |
-          python - "$PANEL_URL" "$PANEL_TOKEN" <<'PY'
+          python - "http://127.0.0.1:$PANEL_PORT" "$PANEL_TOKEN" <<'PY'
           import json, os, pathlib, sys, urllib.request
           url, token = sys.argv[1:3]
           script = os.environ.get("AUTOEXEC_SCRIPT", "")
@@ -571,7 +573,7 @@ jobs:
         env:
           PLACE_ID: ${{ inputs.place_id }}
         run: |
-          python - "$PANEL_URL" "$PANEL_TOKEN" "$PLACE_ID" <<'PY'
+          python - "http://127.0.0.1:$PANEL_PORT" "$PANEL_TOKEN" "$PLACE_ID" <<'PY'
           import json, sys, urllib.request
           url, token, place = sys.argv[1:4]
           body = json.dumps({"place_id": int(place), "wait": 20}).encode()
