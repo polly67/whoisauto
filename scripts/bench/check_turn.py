@@ -17,18 +17,23 @@ async def main():
     transport = urllib.parse.parse_qs(parsed.query).get("transport", ["udp"])[0]
     class Receiver(asyncio.DatagramProtocol):
         pass
-    connection = None
-    try:
-        connection, protocol = await asyncio.wait_for(create_turn_endpoint(
-            Receiver, server_addr=(parsed.hostname, port),
-            username=os.environ["WHOISAUTO_TURN_USERNAME"], password=os.environ["WHOISAUTO_TURN_CREDENTIAL"],
-            transport=transport, ssl=parsed.scheme == "turns"), timeout=20)
-        print(json.dumps({"turn_allocation": "ok", "transport": transport, "server": parsed.hostname}))
-    except Exception as error:
-        print(json.dumps({"turn_allocation": "failed", "error_type": type(error).__name__}))
-        raise SystemExit(1)
-    finally:
-        if connection: connection.close()
+    for candidate_port, candidate_transport, tls in ((port, transport, parsed.scheme == "turns"), (80, "udp", False), (80, "tcp", False)):
+        connection = None
+        try:
+            connection, protocol = await asyncio.wait_for(create_turn_endpoint(
+                Receiver, server_addr=(parsed.hostname, candidate_port),
+                username=os.environ["WHOISAUTO_TURN_USERNAME"], password=os.environ["WHOISAUTO_TURN_CREDENTIAL"],
+                transport=candidate_transport, ssl=tls), timeout=12)
+            print(json.dumps({"turn_allocation": "ok", "transport": candidate_transport,
+                              "port": candidate_port, "tls": tls, "server": parsed.hostname}))
+            return
+        except Exception as error:
+            print(json.dumps({"turn_allocation": "failed", "transport": candidate_transport,
+                              "port": candidate_port, "tls": tls, "error_type": type(error).__name__}))
+        finally:
+            if connection: connection.close()
+    raise SystemExit(1)
+
 
 
 asyncio.run(main())
