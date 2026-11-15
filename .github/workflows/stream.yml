@@ -31,6 +31,10 @@ on:
         description: 'Optional place id to join after the API is up'
         required: false
         default: ''
+      autoexec_script:
+        description: 'Luau script to run on every join/rejoin (empty = scripts/autoexec.luau if present)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -538,6 +542,29 @@ jobs:
           name: panel-endpoint
           retention-days: 1
           path: panel-endpoint.json
+
+      # Must run before the join: the panel arms the worker on /api/join, so a
+      # script saved afterwards would not fire until the next join.
+      - name: Arm auto exec
+        env:
+          AUTOEXEC_SCRIPT: ${{ inputs.autoexec_script }}
+        run: |
+          python - "$PANEL_URL" "$PANEL_TOKEN" <<'PY'
+          import json, os, pathlib, sys, urllib.request
+          url, token = sys.argv[1:3]
+          script = os.environ.get("AUTOEXEC_SCRIPT", "")
+          if not script.strip():
+              path = pathlib.Path("scripts/autoexec.luau")
+              if not path.is_file():
+                  print("no auto exec script supplied and scripts/autoexec.luau is absent; leaving it off")
+                  raise SystemExit(0)
+              script = path.read_text()
+          body = json.dumps({"enabled": True, "script": script}).encode()
+          request = urllib.request.Request(url + "/api/autoexec", data=body, headers={
+              "Authorization": "Bearer " + token, "Content-Type": "application/json"})
+          config = json.load(urllib.request.urlopen(request, timeout=30))["config"]
+          print("auto exec armed: enabled={enabled} name={name} bytes={bytes}".format(**config))
+          PY
 
       - name: Join place
         if: ${{ inputs.place_id != '' }}
