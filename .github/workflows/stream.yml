@@ -56,6 +56,17 @@ jobs:
       - name: Build the Luau syntax checker
         run: python -m whoisauto build-compiler
 
+      - name: Save runner DNS settings
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess
+          settings = {}
+          for kind in ("dnsservers", "searchdomains"):
+              values = subprocess.check_output(["networksetup", "-get" + kind, "Ethernet"], text=True).splitlines()
+              settings[kind] = ["Empty"] if not values or values[0].startswith("There aren't any") else values
+          (pathlib.Path(os.environ["RUNNER_TEMP"]) / "whoisauto-dns.json").write_text(json.dumps(settings))
+          PY
+
       - name: Connect to Tailscale
         uses: tailscale/github-action@v4
         with:
@@ -64,6 +75,13 @@ jobs:
 
       - name: Record private media address
         run: |
+          # The action sets macOS DNS directly, even with --accept-dns=false.
+          python - <<'PY'
+          import json, os, pathlib, subprocess
+          settings = json.loads((pathlib.Path(os.environ["RUNNER_TEMP"]) / "whoisauto-dns.json").read_text())
+          for kind, values in settings.items():
+              subprocess.run(["sudo", "networksetup", "-set" + kind, "Ethernet", *values], check=True)
+          PY
           echo "WHOISAUTO_TAILSCALE_IP=$(tailscale ip -4)" >> "$GITHUB_ENV"
 
       - name: Start API and WebRTC panel
