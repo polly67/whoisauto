@@ -31,6 +31,14 @@
 
 <main>
   <section class="panel" id="tab-desktop">
+    <div class="card wide" id="sunshine-card" hidden>
+      <h3>Sunshine desktop</h3>
+      <p>Connect this device to Tailscale, then add the host below in Moonlight.</p>
+      <p class="path" id="sunshine-host"></p>
+      <p><a id="sunshine-link" target="_blank" rel="noopener noreferrer">Open Sunshine to enter the Moonlight pairing PIN</a></p>
+      <p><a href="https://moonlight-stream.org/" target="_blank" rel="noopener noreferrer">Get Moonlight</a>. Once paired, select Desktop to sign in to Roblox.</p>
+    </div>
+    <div id="webrtc-controls">
     <div class="row">
       <button class="primary" id="desktop-connect">Connect desktop</button>
       <button id="desktop-disconnect">Disconnect</button>
@@ -48,6 +56,7 @@
     <label class="field">Mobile keyboard
       <input id="desktop-text" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type on the remote Mac">
     </label>
+    </div>
   </section>
   <!-- ------------------------------------------------------------ setup -->
   <section class="panel active" id="tab-setup">

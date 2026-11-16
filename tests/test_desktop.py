@@ -43,3 +43,24 @@ def test_invalid_offer_does_not_load_native_runtime(paths):
     with pytest.raises(DesktopError):
         desktop.offer({"type": "offer", "sdp": "not an offer"})
     assert desktop._glib is None
+
+
+def test_sunshine_mode_publishes_private_moonlight_host(paths, monkeypatch):
+    monkeypatch.setenv("WHOISAUTO_DESKTOP_MODE", "sunshine")
+    monkeypatch.setenv("WHOISAUTO_TAILSCALE_IP", "100.85.55.26")
+    desktop = WebRTCDesktop(paths)
+    config = desktop.config()
+    assert config["mode"] == "sunshine"
+    assert config["sunshine_url"] == "https://100.85.55.26:47990"
+    with pytest.raises(DesktopError) as error:
+        desktop.offer({"type": "start"})
+    assert error.value.code == "sunshine_mode"
+    assert desktop._glib is None
+
+
+def test_sunshine_mode_requires_a_tailnet_address(paths, monkeypatch):
+    monkeypatch.setenv("WHOISAUTO_DESKTOP_MODE", "sunshine")
+    monkeypatch.delenv("WHOISAUTO_TAILSCALE_IP", raising=False)
+    with pytest.raises(DesktopError) as error:
+        WebRTCDesktop(paths).config()
+    assert error.value.code == "tailnet_unavailable"

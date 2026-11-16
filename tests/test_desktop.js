@@ -5,8 +5,8 @@ const vm = require("node:vm");
 const source = fs.readFileSync(require("node:path").join(__dirname, "../whoisauto/static/desktop.js"), "utf8");
 const tick = () => new Promise(setImmediate);
 
-function setup() {
-  const ids = ["desktop-video", "desktop-status", "desktop-connect", "desktop-disconnect", "desktop-fullscreen", "desktop-text"];
+function setup(config = { iceServers: [] }) {
+  const ids = ["desktop-video", "desktop-status", "desktop-connect", "desktop-disconnect", "desktop-fullscreen", "desktop-text", "webrtc-controls", "sunshine-card", "sunshine-host", "sunshine-link"];
   const elements = new Map(ids.map((id) => [id, {
     listeners: {}, value: "", disabled: false, videoWidth: 1280, videoHeight: 720,
     addEventListener(name, handler) { this.listeners[name] = handler; },
@@ -42,7 +42,7 @@ function setup() {
     RTCRtpReceiver: { getCapabilities: () => ({ codecs: [{ mimeType: "video/H264" }] }) },
     api: async (url, options) => {
       calls.push({ url, options });
-      if (url.endsWith("config")) return { iceServers: [] };
+      if (url.endsWith("config")) return config;
       if (url.endsWith("offer")) return { session: "session-1", type: "offer", sdp: "offer" };
       return { ok: true };
     }, setInterval: () => 0, clearInterval() {}, setTimeout, clearTimeout,
@@ -59,7 +59,7 @@ test("browser requests receive-only WebRTC and separates pointer delivery", asyn
   assert.equal(channels[0].options.maxRetransmits, 0);
   assert.equal(channels[1].label, "keys");
   assert.equal(channels[1].options.ordered, true);
-  assert.equal(calls[1].url, "/api/desktop/offer");
+  assert.ok(calls.some(call => call.url === "/api/desktop/offer"));
 });
 
 test("mobile touches send normalized coordinates and reliable button releases", async () => {
@@ -83,4 +83,18 @@ test("mobile keyboard deletion works and disconnect releases held input", async 
   assert.equal(channels[1].events.at(-1).type, "release");
   assert.equal(peers[0].closed, true);
   assert.equal(calls.at(-1).url, "/api/desktop/stop");
+});
+
+test("Sunshine mode shows Moonlight details without starting WebRTC", async () => {
+  const { elements, calls, peers } = setup({
+    mode: "sunshine", tailscale_ip: "100.85.55.26", sunshine_url: "https://100.85.55.26:47990",
+  });
+  await tick();
+  assert.equal(elements.get("webrtc-controls").hidden, true);
+  assert.equal(elements.get("sunshine-card").hidden, false);
+  assert.equal(elements.get("sunshine-host").textContent, "100.85.55.26");
+  assert.equal(elements.get("sunshine-link").href, "https://100.85.55.26:47990");
+  await elements.get("desktop-connect").listeners.click();
+  assert.equal(peers.length, 0);
+  assert.ok(calls.every(call => call.url === "/api/desktop/config"));
 });

@@ -183,33 +183,36 @@ local authentication before opening a tunnel. When no account is saved, provisio
 closes any Player window opened by the installer; saving a cookie opens Roblox with
 that account. The live duration must be 1–350 minutes.
 
-## WebRTC desktop
+## Sunshine desktop over Tailscale
 
-The `stream.yml` workflow now runs the Mac desktop through the panel's **Desktop**
-tab. Run Tailscale on the host and on the viewing device. Sunshine is not required.
-Chrome on Android and Safari on iPhone can receive baseline H.264 and send pointer,
-keyboard, and touch-button input. The host uses AVFoundation screen capture and
-VideoToolbox hardware encoding at 1280×720, 60 fps, and 6 Mbps. A one-frame capture
-queue drops old frames instead of building delay. This first desktop path sends
-video and input; system audio is not yet implemented.
+`.github/workflows/stream.yml` restores the Sunshine/Moonlight setup used before
+commit `1a50609`. It installs Sunshine, BetterDisplay and SSH before connecting
+Tailscale, creates a 1280×720 virtual display, configures VideoToolbox H.264, and
+starts the Roblox panel alongside Sunshine. The runner's original DNS settings
+are preserved after the Tailscale action.
 
-Cloudflared exposes the authenticated panel and signaling. WebRTC video and input
-use the private Tailscale network. No STUN/TURN provider or TURN credentials are
-required. The workflow reuses `TAILSCALE_AUTHKEY` and records the host address in
-`WHOISAUTO_TAILSCALE_IP`. Connect your phone to the same tailnet before opening the
-Desktop tab. Local runs can set that environment variable to the host's Tailscale
-IPv4 address. Tailscale can use direct WireGuard or its DERP fallback; the browser's
-WebRTC candidate type alone cannot distinguish those paths. The browser reports
-round-trip time, frame rate, and received bitrate.
+Run the **Sunshine, Tailscale, SSH and whoisauto panel** workflow. It uses the
+`TAILSCALE_AUTHKEY` secret or the workflow's Tailscale key input. Sunshine's
+username and password are workflow inputs; the compatibility defaults are
+`runner` and `root`. The `sunshine-connection-info` artifact contains the runner's
+Tailscale host address, Sunshine Web UI URL, and capture/encoder probe results.
 
-For local macOS hosting, install `gstreamer`, `pygobject3`, and Python with Homebrew.
-Run the panel using that Python so it can load GStreamer bindings. Allow Screen
-Recording for the capture process and Accessibility for `desktop-input` in macOS
-Privacy & Security. The host reports missing permissions rather than accepting
-input that the OS will discard. Disconnect or loss of the session releases held
-keys and mouse buttons; abandoned sessions stop after 20 seconds.
+Connect the viewing device to the same tailnet, install
+[Moonlight](https://moonlight-stream.org/), and add the runner's Tailscale IPv4
+address. Open Sunshine at `https://<tailscale-ip>:47990`, enter the PIN displayed
+by Moonlight, and select **Desktop** in Moonlight. This lets you finish Roblox's
+native sign-in directly on the runner. Sunshine uses its own HTTPS certificate.
 
-The `webrtc-check.yml` workflow receives actual synthetic H.264 frames without
-any TURN service. It also checks macOS capture/encoding plugins
-and compiles the native input helper. The synthetic check uses `aiortc` as a test
-receiver, which is not a panel runtime dependency.
+The panel's **Desktop** tab displays these connection details when
+`WHOISAUTO_DESKTOP_MODE=sunshine` and `WHOISAUTO_TAILSCALE_IP` are set. Desktop
+video and input run in Moonlight. The authenticated cloudflared URL continues
+to serve the Roblox control panel.
+
+macOS must grant Sunshine Screen Recording and Accessibility permissions for
+capture and input. The startup probe reports missing screen capture permission;
+an available Web UI or H.264 encoder alone does not prove a desktop stream works.
+Sunshine's Web UI **Troubleshooting** page contains the permission and log checks.
+
+The experimental WebRTC desktop remains available for local runs that leave
+`WHOISAUTO_DESKTOP_MODE` unset. It requires GStreamer/PyGObject and the native
+input helper. Its diagnostic workflow is `.github/workflows/webrtc-check.yml`.

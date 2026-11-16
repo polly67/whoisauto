@@ -218,11 +218,19 @@ class WebRTCDesktop:
 
     def config(self) -> dict:
         address = tailscale_ip()
+        if os.environ.get("WHOISAUTO_DESKTOP_MODE") == "sunshine":
+            if not address:
+                raise DesktopError(503, "tailnet_unavailable", "Sunshine needs the runner's Tailscale address")
+            return {"ok": True, "mode": "sunshine", "transport": "tailscale",
+                    "tailscale_ip": address, "sunshine_url": f"https://{address}:47990",
+                    "client_url": "https://moonlight-stream.org/", "width": 1280, "height": 720, "fps": 60}
         return {"ok": True, "iceServers": [], "transport": "tailscale",
                 "tailscale_ip": address,
                 "width": 1280, "height": 720, "fps": 60, "bitrate": 6000000}
 
     def offer(self, body: dict, *, test: bool = False) -> dict:
+        if not test and os.environ.get("WHOISAUTO_DESKTOP_MODE") == "sunshine":
+            raise DesktopError(409, "sunshine_mode", "Connect to Sunshine with Moonlight using the Desktop tab")
         if body.get("type") != "start":
             raise DesktopError(400, "invalid_offer", "Start a host-generated WebRTC session")
         payload = 96

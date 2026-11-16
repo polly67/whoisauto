@@ -9,6 +9,14 @@
   let busy = false;
   const video = document.getElementById("desktop-video");
   const status = document.getElementById("desktop-status");
+  function sunshine(config) {
+    if (config.mode !== "sunshine") return false;
+    document.getElementById("webrtc-controls").hidden = true;
+    document.getElementById("sunshine-card").hidden = false;
+    document.getElementById("sunshine-host").textContent = config.tailscale_ip;
+    document.getElementById("sunshine-link").href = config.sunshine_url;
+    return true;
+  }
   const send = (channel, event) => {
     if (channel?.readyState === "open" && (channel !== pointer || channel.bufferedAmount < 16384)) channel.send(JSON.stringify(event));
   };
@@ -43,6 +51,7 @@
     status.textContent = "Connecting…";
     try {
       const config = await api("/api/desktop/config");
+      if (sunshine(config)) return;
       peer = new RTCPeerConnection({ iceServers: config.iceServers, bundlePolicy: "max-bundle" });
       const current = peer;
       peer.ondatachannel = ({ channel }) => {
@@ -150,4 +159,5 @@
   document.getElementById("desktop-fullscreen").addEventListener("click", () => video.requestFullscreen?.() || video.webkitEnterFullscreen?.());
   window.addEventListener("blur", release);
   window.addEventListener("pagehide", () => { release(); peer?.close(); });
+  api("/api/desktop/config").then(sunshine).catch(() => {});
 })();
