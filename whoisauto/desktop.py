@@ -62,8 +62,12 @@ def bind_tailnet(peer, address: str) -> None:
         if not gobject_name:
             raise ValueError("GObject not found")
         gobject = ctypes.CDLL(gobject_name)
+        # ARM64 macOS passes variadic arguments differently from fixed arguments.
+        # Declare the fixed prefix so libffi uses the correct calling convention.
+        gobject.g_object_get.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
         gobject.g_object_get.restype = None
         gobject.g_object_unref.argtypes = [ctypes.c_void_p]
+        gobject.g_object_unref.restype = None
         peer_pointer = pointer(peer.__gpointer__, None)
         ice_pointer, agent_pointer = ctypes.c_void_p(), ctypes.c_void_p()
         gobject.g_object_get(ctypes.c_void_p(peer_pointer), ctypes.c_char_p(b"ice-agent"), ctypes.byref(ice_pointer), None)
