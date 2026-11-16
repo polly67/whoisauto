@@ -27,7 +27,7 @@ jobs:
       - name: Install capture and display tools
         run: |
           export HOMEBREW_NO_INSTALL_CLEANUP=1
-          brew install gstreamer pygobject3 python displayplacer waydabber/betterdisplay/betterdisplaycli
+          brew install gstreamer pygobject3 python cloudflared displayplacer waydabber/betterdisplay/betterdisplaycli
           brew install --cask betterdisplay
           brew link --overwrite betterdisplaycli || true
           "$(brew --prefix)/bin/python3" -m venv --system-site-packages .stream-venv
@@ -60,10 +60,10 @@ jobs:
         uses: tailscale/github-action@v4
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          args: --accept-dns=false
 
       - name: Record private media address
         run: |
-          sudo tailscale set --accept-dns=false
           echo "WHOISAUTO_TAILSCALE_IP=$(tailscale ip -4)" >> "$GITHUB_ENV"
 
       - name: Start API and WebRTC panel
