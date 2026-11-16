@@ -1,0 +1,86 @@
+name: Select one of five macos-latest runners
+
+on:
+  workflow_dispatch:
+    inputs:
+      display_width:
+        description: Desktop width
+        default: '800'
+      display_height:
+        description: Desktop height
+        default: '600'
+      sunshine_user:
+        description: SSH and Sunshine username
+        default: runner
+      sunshine_password:
+        description: SSH and Sunshine password
+        default: root
+      place_id:
+        description: Optional Roblox place ID
+        default: ''
+      autoexec_script:
+        description: Optional Luau script
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  candidates:
+    name: Candidate ${{ matrix.slot }}
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        slot: [1, 2, 3, 4, 5]
+    uses: ./.github/workflows/stream.yml
+    with:
+      runner_label: macos-latest
+      candidate_slot: ${{ matrix.slot }}
+      display_width: ${{ inputs.display_width }}
+      display_height: ${{ inputs.display_height }}
+      sunshine_user: ${{ inputs.sunshine_user }}
+      sunshine_password: ${{ inputs.sunshine_password }}
+      place_id: ${{ inputs.place_id }}
+      autoexec_script: ${{ inputs.autoexec_script }}
+    secrets: inherit
+
+  finish:
+    name: Report selection or cancel the rejected batch
+    needs: candidates
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Check for an accepted runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess, time
+          repo, run_id = os.environ["REPO"], os.environ["RUN_ID"]
+          name = "selected-macos-runner-" + os.environ["ATTEMPT"]
+          artifacts = json.loads(subprocess.check_output([
+              "gh", "api", f"repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100"
+          ], text=True))["artifacts"]
+          selected = any(item["name"] == name and not item["expired"] for item in artifacts)
+          if selected:
+              message = "A runner matched 5 vCPUs and 14 GiB. See the selected runner and Sunshine connection artifacts."
+          else:
+              message = "No runner matched 5 vCPUs and 14 GiB. All five Mac candidates were released; cancelling this batch."
+          print(message, flush=True)
+          with pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
+              stream.write(message + "\n")
+          if not selected:
+              subprocess.run(["gh", "api", "--method", "POST",
+                              f"repos/{repo}/actions/runs/{run_id}/cancel"], check=True)
+              # Keep the reporting job alive while GitHub delivers cancellation.
+              time.sleep(10)
+              raise SystemExit("No matching runner; batch cancellation requested")
+          PY

@@ -185,6 +185,16 @@ that account. The live duration must be 1–350 minutes.
 
 ## Sunshine desktop over Tailscale
 
+To check five machines, run **Select one of five macos-latest runners**
+(`runner-pool.yml`). Its five candidates use `macos-latest` and inspect their own
+`hw.logicalcpu`, `hw.memsize`, and architecture before installing desktop software.
+Only an ARM64 machine with exactly **5 vCPUs and 14 GiB RAM** qualifies. The first
+matching candidate claims the selection artifact and continues the Sunshine
+setup on that same Mac; the other candidates exit and release their runners.
+If none qualifies, the batch cancels itself. Each candidate publishes a specs
+artifact and job summary. The matrix requests up to five concurrent runners;
+GitHub applies the account's runner concurrency limit.
+
 `.github/workflows/stream.yml` restores the Sunshine/Moonlight setup used before
 commit `1a50609`. It installs Sunshine, BetterDisplay and SSH before connecting
 Tailscale, creates an 800×600 virtual display, configures VideoToolbox H.264, and

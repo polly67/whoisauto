@@ -36,6 +36,48 @@ on:
         required: false
         default: ''
 
+  workflow_call:
+    inputs:
+      runner_label:
+        type: string
+        required: false
+        default: "macos-latest"
+      tailscale_authkey:
+        type: string
+        required: false
+        default: ""
+      display_width:
+        type: string
+        required: false
+        default: "800"
+      display_height:
+        type: string
+        required: false
+        default: "600"
+      sunshine_user:
+        type: string
+        required: false
+        default: "runner"
+      sunshine_password:
+        type: string
+        required: false
+        default: "root"
+      place_id:
+        type: string
+        required: false
+        default: ""
+      autoexec_script:
+        type: string
+        required: false
+        default: ""
+      candidate_slot:
+        type: number
+        required: false
+        default: 0
+    secrets:
+      TAILSCALE_AUTHKEY:
+        required: false
+
 permissions:
   contents: read
 
@@ -48,13 +90,53 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Inspect this candidate's hardware
+        if: ${{ inputs.candidate_slot }}
+        id: specs
+        run: python3 scripts/ci/check_runner.py --slot "${{ inputs.candidate_slot }}" --report "$RUNNER_TEMP/runner-specs.json"
+
+      - name: Publish candidate specs
+        if: ${{ inputs.candidate_slot && steps.specs.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-specs-${{ inputs.candidate_slot }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runner-specs.json
+          retention-days: 1
+
+      - name: Claim the single accepted runner
+        if: ${{ inputs.candidate_slot && steps.specs.outputs.eligible == 'true' }}
+        id: claim
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          # Artifact creation is atomic. A second candidate receives a name conflict.
+          name: selected-macos-runner-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runner-specs.json
+          retention-days: 1
+
+      - name: Report the selection result
+        if: ${{ inputs.candidate_slot }}
+        env:
+          ELIGIBLE: ${{ steps.specs.outputs.eligible }}
+          CLAIM: ${{ steps.claim.outcome }}
+        run: |
+          if [ "$CLAIM" = "success" ]; then
+            echo "Selected: this exact Mac continues to Sunshine installation."
+          elif [ "$ELIGIBLE" = "true" ]; then
+            echo "This matching candidate did not obtain the selection claim; releasing it."
+          else
+            echo "Hardware did not match 5 vCPUs and 14 GiB; releasing this Mac."
+          fi
+
       - name: Setup Python
+        if: ${{ !inputs.candidate_slot || steps.claim.outcome == 'success' }}
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       # 1. Install BetterDisplay, DisplayPlacer, Sunshine & AsyncSSH FIRST (before Tailscale changes DNS)
       - name: Install BetterDisplay, Sunshine & AsyncSSH
+        if: ${{ !inputs.candidate_slot || steps.claim.outcome == 'success' }}
         run: |
           curl -s --max-time 5 https://ipinfo.io/json > /tmp/geo.json || echo '{}' > /tmp/geo.json
           sysctl -n machdep.cpu.brand_string > /tmp/cpu_chip.txt 2>/dev/null || echo "Apple Silicon" > /tmp/cpu_chip.txt
@@ -77,9 +159,10 @@ jobs:
 
       # 2. Configure & self-test SSH server on port 22 with runner / root
       - name: Verify SSH Server (runner / root)
+        if: ${{ !inputs.candidate_slot || steps.claim.outcome == 'success' }}
         env:
-          SUN_USER: ${{ github.event.inputs.sunshine_user || 'runner' }}
-          SUN_PASS: ${{ github.event.inputs.sunshine_password || 'root' }}
+          SUN_USER: ${{ inputs.sunshine_user || 'runner' }}
+          SUN_PASS: ${{ inputs.sunshine_password || 'root' }}
         run: |
           echo "=== Verifying AsyncSSH Server on Port 22 ==="
           LOCAL_USER=$(id -un)
@@ -144,17 +227,20 @@ jobs:
           sleep 1
 
       - name: Create the desktop display
+        if: ${{ !inputs.candidate_slot || steps.claim.outcome == 'success' }}
         env:
           DISP_W: ${{ inputs.display_width || '800' }}
           DISP_H: ${{ inputs.display_height || '600' }}
         run: bash scripts/ci/setup_display.sh
 
       - name: Install whoisauto and build the Luau checker
+        if: ${{ !inputs.candidate_slot || steps.claim.outcome == 'success' }}
         run: |
           python -m pip install -e .
           python -m whoisauto build-compiler
 
       - name: Save runner DNS settings
+        if: ${{ !inputs.candidate_slot || steps.claim.outcome == 'success' }}
         run: |
           python3 - <<'PY'
           import json, os, pathlib, subprocess
@@ -167,17 +253,19 @@ jobs:
 
       # 4. Connect runner to your Tailscale network
       - name: Connect to Tailscale
+        if: ${{ !inputs.candidate_slot || steps.claim.outcome == 'success' }}
         uses: tailscale/github-action@v4
         with:
-          authkey: ${{ github.event.inputs.tailscale_authkey || secrets.TAILSCALE_AUTHKEY }}
+          authkey: ${{ inputs.tailscale_authkey || secrets.TAILSCALE_AUTHKEY }}
           version: latest
           args: --accept-dns=false
 
       # 5. Configure Sunshine (runner / root + CSRF allowed origins) & Preflight Test
       - name: Configure Sunshine & Verify CSRF
+        if: ${{ !inputs.candidate_slot || steps.claim.outcome == 'success' }}
         env:
-          SUN_USER: ${{ github.event.inputs.sunshine_user || 'runner' }}
-          SUN_PASS: ${{ github.event.inputs.sunshine_password || 'root' }}
+          SUN_USER: ${{ inputs.sunshine_user || 'runner' }}
+          SUN_PASS: ${{ inputs.sunshine_password || 'root' }}
         run: |
           # Restore the runner's original DNS after the Tailscale action.
           python3 - <<'PY'
@@ -321,6 +409,7 @@ jobs:
       #     now: its first run needs a live window server, which only exists
       #     after the virtual display and Sunshine have started.
       - name: Install Opiumware and patched Roblox
+        if: ${{ !inputs.candidate_slot || steps.claim.outcome == 'success' }}
         run: |
           # the bundled Injector is Intel; arm64 runners need Rosetta
           # the installer opens with `clear` and runs under set -euo pipefail;
@@ -328,7 +417,7 @@ jobs:
           bash scripts/ci/install_apps.sh
 
       - name: Upload installer log
-        if: always()
+        if: ${{ (always()) && (!inputs.candidate_slot || steps.claim.outcome == 'success') }}
         uses: actions/upload-artifact@v4
         with:
           name: opium-install-log
@@ -338,6 +427,7 @@ jobs:
 
       # 5c. Start opom, the whoisauto panel and the public tunnel
       - name: Start opom and the panel
+        if: ${{ !inputs.candidate_slot || steps.claim.outcome == 'success' }}
         run: |
           python -m whoisauto start
 
@@ -354,9 +444,11 @@ jobs:
           cp panel-endpoint.json /tmp/conn-info/panel.json
 
       - name: Verify the public URL
+        if: ${{ !inputs.candidate_slot || steps.claim.outcome == 'success' }}
         run: bash scripts/ci/check_panel.sh
 
       - name: Publish panel endpoint
+        if: ${{ !inputs.candidate_slot || steps.claim.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: panel-endpoint
@@ -368,6 +460,7 @@ jobs:
       # Both this and the join talk to the panel over loopback: Tailscale owns
       # DNS by this point, so the quick tunnel hostname does not resolve here.
       - name: Arm auto exec
+        if: ${{ !inputs.candidate_slot || steps.claim.outcome == 'success' }}
         env:
           AUTOEXEC_SCRIPT: ${{ inputs.autoexec_script }}
         run: |
@@ -389,7 +482,7 @@ jobs:
           PY
 
       - name: Join place
-        if: ${{ inputs.place_id != '' }}
+        if: ${{ (inputs.place_id != '') && (!inputs.candidate_slot || steps.claim.outcome == 'success') }}
         env:
           PLACE_ID: ${{ inputs.place_id }}
         run: |
@@ -404,6 +497,7 @@ jobs:
 
       # 6. Publish connection info immediately so it is accessible while Sunshine runs
       - name: Upload Connection Info
+        if: ${{ !inputs.candidate_slot || steps.claim.outcome == 'success' }}
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
@@ -413,9 +507,10 @@ jobs:
 
       # 7. Start SSH, Sunshine & Keep Session Active
       - name: Start SSH, Sunshine & Keep Alive
+        if: ${{ !inputs.candidate_slot || steps.claim.outcome == 'success' }}
         env:
-          SUN_USER: ${{ github.event.inputs.sunshine_user || 'runner' }}
-          SUN_PASS: ${{ github.event.inputs.sunshine_password || 'root' }}
+          SUN_USER: ${{ inputs.sunshine_user || 'runner' }}
+          SUN_PASS: ${{ inputs.sunshine_password || 'root' }}
         run: |
           # Prevent display/system sleep
           caffeinate -d -i -m -s -u &
@@ -466,7 +561,7 @@ jobs:
           done
 
       - name: Shut down
-        if: always()
+        if: ${{ (always()) && (!inputs.candidate_slot || steps.claim.outcome == 'success') }}
         run: |
           pkill -x sunshine || true
           sudo pkill -f "scripts/ssh_server.py" || true
