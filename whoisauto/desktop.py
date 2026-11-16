@@ -54,6 +54,12 @@ def bind_tailnet(peer, address: str) -> None:
         pointer.restype = ctypes.c_void_p
         gobject_name = ctypes.util.find_library("gobject-2.0")
         if not gobject_name:
+            for prefix in ("/opt/homebrew", "/usr/local"):
+                candidate = Path(prefix) / "opt/glib/lib/libgobject-2.0.0.dylib"
+                if candidate.is_file():
+                    gobject_name = str(candidate)
+                    break
+        if not gobject_name:
             raise ValueError("GObject not found")
         gobject = ctypes.CDLL(gobject_name)
         gobject.g_object_get.restype = None

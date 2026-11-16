@@ -37,8 +37,14 @@ jobs:
           import gi
           gi.require_version("Gst", "1.0")
           from gi.repository import Gst
+          from whoisauto.desktop import bind_tailnet
           Gst.init(None)
           for name in ("avfvideosrc", "vtenc_h264", "webrtcbin"):
               assert Gst.ElementFactory.find(name), name
+          pipeline = Gst.Pipeline.new("interface-check")
+          peer = Gst.ElementFactory.make("webrtcbin")
+          pipeline.add(peer)
+          bind_tailnet(peer, "127.0.0.1")
+          pipeline.set_state(Gst.State.NULL)
           print("Native capture, VideoToolbox and WebRTC plugins available")
           PY
