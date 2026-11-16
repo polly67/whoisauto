@@ -223,7 +223,7 @@ class WebRTCDesktop:
                 raise DesktopError(503, "tailnet_unavailable", "Sunshine needs the runner's Tailscale address")
             return {"ok": True, "mode": "sunshine", "transport": "tailscale",
                     "tailscale_ip": address, "sunshine_url": f"https://{address}:47990",
-                    "client_url": "https://moonlight-stream.org/", "width": 1280, "height": 720, "fps": 60}
+                    "client_url": "https://moonlight-stream.org/", "width": 800, "height": 600, "fps": 60}
         return {"ok": True, "iceServers": [], "transport": "tailscale",
                 "tailscale_ip": address,
                 "width": 1280, "height": 720, "fps": 60, "bitrate": 6000000}

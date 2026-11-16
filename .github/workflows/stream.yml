@@ -14,11 +14,11 @@ on:
       display_width:
         description: 'Virtual Display Width'
         required: false
-        default: '1280'
+        default: '800'
       display_height:
         description: 'Virtual Display Height'
         required: false
-        default: '720'
+        default: '600'
       sunshine_user:
         description: 'SSH & Sunshine Admin Username'
         required: false
@@ -145,8 +145,8 @@ jobs:
 
       - name: Create the desktop display
         env:
-          DISP_W: ${{ inputs.display_width || '1280' }}
-          DISP_H: ${{ inputs.display_height || '720' }}
+          DISP_W: ${{ inputs.display_width || '800' }}
+          DISP_H: ${{ inputs.display_height || '600' }}
         run: bash scripts/ci/setup_display.sh
 
       - name: Install whoisauto and build the Luau checker

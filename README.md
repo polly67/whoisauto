@@ -187,7 +187,7 @@ that account. The live duration must be 1–350 minutes.
 
 `.github/workflows/stream.yml` restores the Sunshine/Moonlight setup used before
 commit `1a50609`. It installs Sunshine, BetterDisplay and SSH before connecting
-Tailscale, creates a 1280×720 virtual display, configures VideoToolbox H.264, and
+Tailscale, creates an 800×600 virtual display, configures VideoToolbox H.264, and
 starts the Roblox panel alongside Sunshine. The runner's original DNS settings
 are preserved after the Tailscale action.
 

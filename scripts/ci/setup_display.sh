@@ -96,7 +96,7 @@ PYEOF
 sudo mkdir -p /usr/local/bin
 cat << 'EOF' > /tmp/set-res
 #!/bin/bash
-RES="${1:-1280x720}"
+RES="${1:-800x600}"
 SID=$(sed -n '1p' /tmp/stream_dp_ids.txt 2>/dev/null || echo "2")
 AID=$(sed -n '2p' /tmp/stream_dp_ids.txt 2>/dev/null || echo "1")
 displayplacer "id:${SID}+${AID} res:${RES} scaling:off origin:(0,0) degree:0" || \
