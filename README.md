@@ -186,19 +186,21 @@ that account. The live duration must be 1–350 minutes.
 ## WebRTC desktop
 
 The `stream.yml` workflow now runs the Mac desktop through the panel's **Desktop**
-tab. Sunshine, Tailscale, and an SSH connection are not needed by the viewer.
+tab. Run Tailscale on the host and on the viewing device. Sunshine is not required.
 Chrome on Android and Safari on iPhone can receive baseline H.264 and send pointer,
 keyboard, and touch-button input. The host uses AVFoundation screen capture and
 VideoToolbox hardware encoding at 1280×720, 60 fps, and 6 Mbps. A one-frame capture
 queue drops old frames instead of building delay. This first desktop path sends
 video and input; system audio is not yet implemented.
 
-Cloudflared exposes the authenticated panel and signaling. WebRTC media uses ICE
-direct connections or TURN, outside the HTTP tunnel. Configure GitHub repository
-secrets `WHOISAUTO_TURN_URL`, `WHOISAUTO_TURN_USERNAME`, and
-`WHOISAUTO_TURN_CREDENTIAL`. The same environment variables configure local runs.
-The browser reports the selected route, round-trip time, frame rate, and received
-bitrate. Actual latency depends on the network and relay location.
+Cloudflared exposes the authenticated panel and signaling. WebRTC video and input
+use the private Tailscale network. No STUN/TURN provider or TURN credentials are
+required. The workflow reuses `TAILSCALE_AUTHKEY` and records the host address in
+`WHOISAUTO_TAILSCALE_IP`. Connect your phone to the same tailnet before opening the
+Desktop tab. Local runs can set that environment variable to the host's Tailscale
+IPv4 address. Tailscale can use direct WireGuard or its DERP fallback; the browser's
+WebRTC candidate type alone cannot distinguish those paths. The browser reports
+round-trip time, frame rate, and received bitrate.
 
 For local macOS hosting, install `gstreamer`, `pygobject3`, and Python with Homebrew.
 Run the panel using that Python so it can load GStreamer bindings. Allow Screen
@@ -207,7 +209,7 @@ Privacy & Security. The host reports missing permissions rather than accepting
 input that the OS will discard. Disconnect or loss of the session releases held
 keys and mouse buttons; abandoned sessions stop after 20 seconds.
 
-The `webrtc-check.yml` workflow receives actual synthetic H.264 frames and checks
-an authenticated TURN allocation. It also checks macOS capture/encoding plugins
+The `webrtc-check.yml` workflow receives actual synthetic H.264 frames without
+any TURN service. It also checks macOS capture/encoding plugins
 and compiles the native input helper. The synthetic check uses `aiortc` as a test
 receiver, which is not a panel runtime dependency.

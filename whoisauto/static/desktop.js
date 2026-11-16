@@ -85,15 +85,13 @@
           const remote = await api(`/api/desktop/status?session=${encodeURIComponent(session)}`);
           if (remote.error) throw new Error(remote.error);
           const stats = await current.getStats();
-          let transport = "connecting";
+          let transport = "Tailscale";
           let rtt = "—";
           let fps = "—";
           let bitrate = "—";
           for (const report of stats.values()) {
             if (report.type === "candidate-pair" && report.state === "succeeded" && report.nominated) {
-              const local = stats.get(report.localCandidateId);
-              const remote = stats.get(report.remoteCandidateId);
-              transport = local?.candidateType === "relay" || remote?.candidateType === "relay" ? "TURN relay" : "direct";
+              transport = "Tailscale media";
               rtt = Math.round((report.currentRoundTripTime || 0) * 1000) + " ms";
             }
             if (report.type === "inbound-rtp" && report.kind === "video") {

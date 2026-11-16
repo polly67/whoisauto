@@ -14,7 +14,7 @@ jobs:
       - name: Install WebRTC libraries
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y python3-gi python3-venv gir1.2-gst-plugins-bad-1.0 gstreamer1.0-plugins-bad gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-nice
+          sudo apt-get install -y python3-gi python3-venv gir1.2-nice-0.1 gir1.2-gst-plugins-bad-1.0 gstreamer1.0-plugins-bad gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-nice
           python3 -m venv --system-site-packages .test-rtc
           .test-rtc/bin/pip install -e '.[test]' aiortc
       - name: Unit checks
@@ -23,13 +23,6 @@ jobs:
           node --test tests/test_desktop.js
       - name: Receive actual H.264 WebRTC frames
         run: .test-rtc/bin/python scripts/bench/webrtc_smoke.py
-      - name: Allocate an authenticated TURN relay
-        if: always()
-        env:
-          WHOISAUTO_TURN_URL: ${{ secrets.WHOISAUTO_TURN_URL }}
-          WHOISAUTO_TURN_USERNAME: ${{ secrets.WHOISAUTO_TURN_USERNAME }}
-          WHOISAUTO_TURN_CREDENTIAL: ${{ secrets.WHOISAUTO_TURN_CREDENTIAL }}
-        run: .test-rtc/bin/python scripts/bench/check_turn.py
   mac:
     runs-on: macos-latest
     timeout-minutes: 20
@@ -43,9 +36,12 @@ jobs:
           "$(brew --prefix)/bin/python3" - <<'PY'
           import gi
           gi.require_version("Gst", "1.0")
+          gi.require_version("Nice", "0.1")
           from gi.repository import Gst
+          from gi.repository import Nice
           Gst.init(None)
           for name in ("avfvideosrc", "vtenc_h264", "webrtcbin"):
               assert Gst.ElementFactory.find(name), name
+          assert hasattr(Nice.Agent, "add_local_address")
           print("Native capture, VideoToolbox and WebRTC plugins available")
           PY

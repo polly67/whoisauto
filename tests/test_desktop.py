@@ -2,20 +2,23 @@ import json
 
 import pytest
 
-from whoisauto.desktop import DesktopError, WebRTCDesktop, ice_servers, input_event, turn_uri
+from whoisauto.desktop import DesktopError, WebRTCDesktop, input_event, tailscale_ip
 
 
-def test_turn_credentials_are_configured_as_a_set(monkeypatch):
-    for name in ("WHOISAUTO_TURN_URL", "WHOISAUTO_TURN_USERNAME", "WHOISAUTO_TURN_CREDENTIAL"):
-        monkeypatch.delenv(name, raising=False)
-    assert len(ice_servers()) == 1
-    monkeypatch.setenv("WHOISAUTO_TURN_URL", "turn:relay.example:3478?transport=udp")
-    with pytest.raises(DesktopError):
-        ice_servers()
-    monkeypatch.setenv("WHOISAUTO_TURN_USERNAME", "viewer")
-    monkeypatch.setenv("WHOISAUTO_TURN_CREDENTIAL", "test/password")
-    server = ice_servers()[1]
-    assert turn_uri(server) == "turn://viewer:test%2Fpassword@relay.example:3478?transport=udp"
+def test_tailnet_config_needs_no_turn_credentials(paths, monkeypatch):
+    monkeypatch.setenv("WHOISAUTO_TURN_URL", "broken-unused-value")
+    config = WebRTCDesktop(paths).config()
+    assert config["iceServers"] == []
+    assert config["transport"] == "tailscale"
+    assert "credential" not in json.dumps(config)
+
+
+def test_tailnet_address_is_validated(monkeypatch):
+    monkeypatch.setenv("WHOISAUTO_TAILSCALE_IP", "100.85.55.26")
+    assert tailscale_ip() == "100.85.55.26"
+    for value in ("127.0.0.1", "not-an-address", "192.168.1.1"):
+        monkeypatch.setenv("WHOISAUTO_TAILSCALE_IP", value)
+        with pytest.raises(DesktopError): tailscale_ip()
 
 
 @pytest.mark.parametrize("event", [

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import math
 import os
 from pathlib import Path
@@ -10,7 +11,6 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.parse
 import uuid
 
 from .config import Paths
@@ -22,23 +22,32 @@ class DesktopError(RuntimeError):
         super().__init__(message)
 
 
-def ice_servers() -> list[dict]:
-    servers = [{"urls": "stun:stun.l.google.com:19302"}]
-    url = os.environ.get("WHOISAUTO_TURN_URL", "")
-    user = os.environ.get("WHOISAUTO_TURN_USERNAME", "")
-    credential = os.environ.get("WHOISAUTO_TURN_CREDENTIAL", "")
-    if any((url, user, credential)):
-        if not all((url, user, credential)) or not url.startswith(("turn:", "turns:")):
-            raise DesktopError(503, "invalid_turn", "Configure the TURN URL, username, and credential together")
-        servers.append({"urls": url, "username": user, "credential": credential})
-    return servers
+def tailscale_ip() -> str | None:
+    value = os.environ.get("WHOISAUTO_TAILSCALE_IP", "")
+    if not value:
+        return None
+    try:
+        address = ipaddress.IPv4Address(value)
+    except ipaddress.AddressValueError:
+        raise DesktopError(503, "invalid_tailnet", "Configure a valid Tailscale IPv4 address") from None
+    if address not in ipaddress.IPv4Network("100.64.0.0/10"):
+        raise DesktopError(503, "invalid_tailnet", "Desktop media must use a Tailscale address")
+    return str(address)
 
 
-def turn_uri(server: dict) -> str:
-    scheme, address = server["urls"].split(":", 1)
-    user = urllib.parse.quote(server["username"], safe="")
-    credential = urllib.parse.quote(server["credential"], safe="")
-    return f"{scheme}://{user}:{credential}@{address}"
+def bind_tailnet(peer, address: str) -> None:
+    try:
+        import gi
+        gi.require_version("Nice", "0.1")
+        from gi.repository import Nice
+        local = Nice.Address.new()
+        if not local.set_from_string(address):
+            raise ValueError("invalid local address")
+        agent = peer.get_property("ice-agent").get_property("agent")
+        if not agent.add_local_address(local):
+            raise ValueError("local address rejected")
+    except (ImportError, ValueError, AttributeError):
+        raise DesktopError(503, "tailnet_unavailable", "Install libnice introspection support to bind Tailscale media") from None
 
 
 def input_event(raw: str) -> dict | None:
@@ -159,8 +168,9 @@ class WebRTCDesktop:
         return True
 
     def config(self) -> dict:
-        servers = ice_servers()
-        return {"ok": True, "iceServers": servers, "relay_available": len(servers) > 1,
+        address = tailscale_ip()
+        return {"ok": True, "iceServers": [], "transport": "tailscale",
+                "tailscale_ip": address,
                 "width": 1280, "height": 720, "fps": 60, "bitrate": 6000000}
 
     def offer(self, body: dict, *, test: bool = False) -> dict:
@@ -188,10 +198,9 @@ class WebRTCDesktop:
             try:
                 self.pipe = Gst.parse_launch(pipeline)
                 self.peer = self.pipe.get_by_name("peer")
-                self.peer.set_property("stun-server", "stun://stun.l.google.com:19302")
-                for server in ice_servers()[1:]:
-                    if not self.peer.emit("add-turn-server", turn_uri(server)):
-                        raise DesktopError(503, "invalid_turn", "The TURN server URL could not be configured")
+                address = tailscale_ip()
+                if address and not test:
+                    bind_tailnet(self.peer, address)
                 self.peer.connect("on-data-channel", self._channel)
                 self.pipe.get_bus().add_signal_watch()
                 self.pipe.get_bus().connect("message::error", self._bus_error)

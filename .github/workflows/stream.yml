@@ -1,4 +1,4 @@
-name: WebRTC desktop and whoisauto panel
+name: WebRTC over Tailscale and whoisauto panel
 
 on:
   workflow_dispatch:
@@ -41,6 +41,9 @@ jobs:
           Gst.init(None)
           for name in ("webrtcbin", "avfvideosrc", "vtenc_h264", "rtph264pay"):
               assert Gst.ElementFactory.find(name), f"missing {name}"
+          gi.require_version("Nice", "0.1")
+          from gi.repository import Nice
+          assert hasattr(Nice.Agent, "add_local_address")
           print(Gst.version_string())
           PY
 
@@ -53,11 +56,17 @@ jobs:
       - name: Install Opiumware and patched Roblox
         run: bash scripts/ci/install_apps.sh
 
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+      - name: Record private media address
+        run: |
+          sudo tailscale set --accept-dns=false
+          echo "WHOISAUTO_TAILSCALE_IP=$(tailscale ip -4)" >> "$GITHUB_ENV"
+
       - name: Start API and WebRTC panel
-        env:
-          WHOISAUTO_TURN_URL: ${{ secrets.WHOISAUTO_TURN_URL }}
-          WHOISAUTO_TURN_USERNAME: ${{ secrets.WHOISAUTO_TURN_USERNAME }}
-          WHOISAUTO_TURN_CREDENTIAL: ${{ secrets.WHOISAUTO_TURN_CREDENTIAL }}
         run: |
           python -m whoisauto build-compiler
           python -m whoisauto start
@@ -65,7 +74,7 @@ jobs:
           bash scripts/ci/start_panel.sh
           {
             echo "## WebRTC desktop"
-            echo "Open the panel's Desktop tab. Browser clients use H.264 with touch and keyboard controls."
+            echo "Connect your mobile device to Tailscale, then open the panel's Desktop tab. H.264 video and controls use the tailnet."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify public panel
@@ -81,38 +90,53 @@ jobs:
       - name: Arm auto exec
         env:
           AUTOEXEC_SCRIPT: ${{ inputs.autoexec_script }}
-        run: "python - \"http://127.0.0.1:$PANEL_PORT\" \"$PANEL_TOKEN\" <<'PY'\nimport json, os, pathlib, sys, urllib.request\n\
-          url, token = sys.argv[1:3]\nscript = os.environ.get(\"AUTOEXEC_SCRIPT\", \"\")\nif not script.strip():\n    path = pathlib.Path(\"\
-          scripts/autoexec.luau\")\n    if not path.is_file():\n        print(\"no auto exec script supplied and scripts/autoexec.luau\
-          \ is absent; leaving it off\")\n        raise SystemExit(0)\n    script = path.read_text()\nbody = json.dumps({\"enabled\"\
-          : True, \"script\": script}).encode()\nrequest = urllib.request.Request(url + \"/api/autoexec\", data=body, headers={\n\
-          \    \"Authorization\": \"Bearer \" + token, \"Content-Type\": \"application/json\"})\nconfig = json.load(urllib.request.urlopen(request,\
-          \ timeout=30))[\"config\"]\nprint(\"auto exec armed: enabled={enabled} name={name} bytes={bytes}\".format(**config))\n\
-          PY\n"
+        run: |
+          python - "http://127.0.0.1:$PANEL_PORT" "$PANEL_TOKEN" <<'PY'
+          import json, os, pathlib, sys, urllib.request
+          url, token = sys.argv[1:3]
+          script = os.environ.get("AUTOEXEC_SCRIPT", "")
+          if not script.strip():
+              path = pathlib.Path("scripts/autoexec.luau")
+              if not path.is_file():
+                  print("no auto exec script supplied and scripts/autoexec.luau is absent; leaving it off")
+                  raise SystemExit(0)
+              script = path.read_text()
+          body = json.dumps({"enabled": True, "script": script}).encode()
+          request = urllib.request.Request(url + "/api/autoexec", data=body, headers={
+              "Authorization": "Bearer " + token, "Content-Type": "application/json"})
+          config = json.load(urllib.request.urlopen(request, timeout=30))["config"]
+          print("auto exec armed: enabled={enabled} name={name} bytes={bytes}".format(**config))
+          PY
+
       - name: Join place
         if: ${{ inputs.place_id != '' }}
         env:
           PLACE_ID: ${{ inputs.place_id }}
-        run: "python - \"http://127.0.0.1:$PANEL_PORT\" \"$PANEL_TOKEN\" \"$PLACE_ID\" <<'PY'\nimport json, sys, urllib.request\n\
-          url, token, place = sys.argv[1:4]\nbody = json.dumps({\"place_id\": int(place), \"wait\": 20}).encode()\nrequest = urllib.request.Request(url\
-          \ + \"/api/join\", data=body, headers={\n    \"Authorization\": \"Bearer \" + token, \"Content-Type\": \"application/json\"\
-          })\nprint(urllib.request.urlopen(request, timeout=60).read().decode())\nPY\n"
+        run: |
+          python - "http://127.0.0.1:$PANEL_PORT" "$PANEL_TOKEN" "$PLACE_ID" <<'PY'
+          import json, sys, urllib.request
+          url, token, place = sys.argv[1:4]
+          body = json.dumps({"place_id": int(place), "wait": 20}).encode()
+          request = urllib.request.Request(url + "/api/join", data=body, headers={
+              "Authorization": "Bearer " + token, "Content-Type": "application/json"})
+          print(urllib.request.urlopen(request, timeout=60).read().decode())
+          PY
 
       - name: Keep desktop alive
         run: |
           caffeinate -d -i -m -s -u &
           while true; do
             python - <<'PY'
-            import json, os, urllib.request
-            from whoisauto.config import Paths, read_json
-            record = read_json(Paths.load().state / "panel.json")
-            if not record:
-                raise SystemExit("Panel stopped")
-            request = urllib.request.Request(record["url"] + "/api/state", headers={
-                "Authorization": "Bearer " + os.environ["WHOISAUTO_ACCESS_TOKEN"]})
-            with urllib.request.urlopen(request, timeout=15) as response:
-                assert response.status == 200
-            PY
+          import os, urllib.request
+          from whoisauto.config import Paths, read_json
+          record = read_json(Paths.load().state / "panel.json")
+          if not record:
+              raise SystemExit("Panel stopped")
+          request = urllib.request.Request(record["url"] + "/api/state", headers={
+              "Authorization": "Bearer " + os.environ["WHOISAUTO_ACCESS_TOKEN"]})
+          with urllib.request.urlopen(request, timeout=15) as response:
+              assert response.status == 200
+          PY
             sleep 30
           done
 
