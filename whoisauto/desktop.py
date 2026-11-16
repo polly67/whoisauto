@@ -6,6 +6,7 @@ import json
 import ctypes
 import ctypes.util
 import ipaddress
+import logging
 import math
 import os
 from pathlib import Path
@@ -306,6 +307,7 @@ class WebRTCDesktop:
                 self.close()
                 raise
             except Exception:
+                logging.getLogger(__name__).exception("Desktop initialization failed")
                 self.close()
                 raise DesktopError(503, "webrtc_failed", "Could not start capture or negotiate H.264 WebRTC") from None
 

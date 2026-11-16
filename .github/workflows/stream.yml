@@ -89,6 +89,30 @@ jobs:
           python -m whoisauto start
           xcrun swiftc whoisauto/native/desktop_input.swift -O -o runtime/state/desktop-input
           bash scripts/ci/start_panel.sh
+          python - <<'PY'
+          import json, os, pathlib, urllib.error, urllib.request
+          from whoisauto.config import Paths, read_json
+          endpoint = json.loads(pathlib.Path("panel-endpoint.json").read_text())
+          base = read_json(Paths.load().state / "panel.json")["url"]
+          headers = {"Authorization": "Bearer " + endpoint["access_token"], "Content-Type": "application/json"}
+          def request(path, data=None):
+              body = None if data is None else json.dumps(data).encode()
+              with urllib.request.urlopen(urllib.request.Request(base + path, data=body, headers=headers), timeout=90) as response:
+                  return json.load(response)
+          try:
+              offer = request("/api/desktop/offer", {"type": "start"})
+              try:
+                  candidates = [line.split() for line in offer["sdp"].splitlines() if line.startswith("a=candidate:")]
+                  address = os.environ["WHOISAUTO_TAILSCALE_IP"]
+                  assert candidates and all(address in candidate for candidate in candidates), "Missing private media candidates"
+                  print("Real screen capture, input helper, and Tailscale media candidates passed")
+              finally:
+                  request("/api/desktop/stop", {"session": offer["session"]})
+          except urllib.error.HTTPError as error:
+              print(error.read().decode())
+              print(pathlib.Path("/tmp/panel.log").read_text())
+              raise SystemExit("Desktop startup check failed")
+          PY
           {
             echo "## WebRTC desktop"
             echo "Connect your mobile device to Tailscale, then open the panel's Desktop tab. H.264 video and controls use the tailnet."

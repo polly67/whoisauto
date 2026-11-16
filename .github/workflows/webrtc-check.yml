@@ -37,7 +37,8 @@ jobs:
           import gi
           gi.require_version("Gst", "1.0")
           from gi.repository import Gst
-          from whoisauto.desktop import bind_tailnet
+          from whoisauto.config import Paths
+          from whoisauto.desktop import WebRTCDesktop, bind_tailnet
           Gst.init(None)
           for name in ("avfvideosrc", "vtenc_h264", "webrtcbin"):
               assert Gst.ElementFactory.find(name), name
@@ -47,4 +48,11 @@ jobs:
           bind_tailnet(peer, "127.0.0.1")
           pipeline.set_state(Gst.State.NULL)
           print("Native capture, VideoToolbox and WebRTC plugins available")
+          desktop = WebRTCDesktop(Paths.load())
+          try:
+              offer = desktop.offer({"type": "start"})
+              assert offer["type"] == "offer" and "a=candidate:" in offer["sdp"]
+              print("Real macOS capture and input helper started")
+          finally:
+              desktop.shutdown()
           PY
