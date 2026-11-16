@@ -1,64 +1,162 @@
-name: WebRTC over Tailscale and whoisauto panel
+name: Sunshine, Tailscale, SSH and whoisauto panel
 
 on:
   workflow_dispatch:
     inputs:
       runner_label:
-        description: macOS runner label
-        default: macos-latest
+        description: 'Runner label'
+        required: false
+        default: 'macos-latest'
+      tailscale_authkey:
+        description: 'Tailscale Auth Key'
+        required: false
+        default: ''
+      display_width:
+        description: 'Virtual Display Width'
+        required: false
+        default: '1280'
+      display_height:
+        description: 'Virtual Display Height'
+        required: false
+        default: '720'
+      sunshine_user:
+        description: 'SSH & Sunshine Admin Username'
+        required: false
+        default: 'runner'
+      sunshine_password:
+        description: 'SSH & Sunshine Admin Password'
+        required: false
+        default: 'root'
       place_id:
-        description: Optional place ID
+        description: 'Optional place id to join after the API is up'
+        required: false
         default: ''
       autoexec_script:
-        description: Optional Luau auto-execute script
+        description: 'Luau script to run on every join/rejoin (empty = scripts/autoexec.luau if present)'
+        required: false
         default: ''
 
 permissions:
   contents: read
 
 jobs:
-  desktop:
-    name: WebRTC Mac desktop
+  sunshine-macos:
+    name: Run Sunshine, SSH & Virtual Display on macOS
     runs-on: ${{ inputs.runner_label || 'macos-latest' }}
     timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Install capture and display tools
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 1. Install BetterDisplay, DisplayPlacer, Sunshine & AsyncSSH FIRST (before Tailscale changes DNS)
+      - name: Install BetterDisplay, Sunshine & AsyncSSH
         run: |
+          curl -s --max-time 5 https://ipinfo.io/json > /tmp/geo.json || echo '{}' > /tmp/geo.json
+          sysctl -n machdep.cpu.brand_string > /tmp/cpu_chip.txt 2>/dev/null || echo "Apple Silicon" > /tmp/cpu_chip.txt
+          echo "=== Hardware & Region ==="
+          cat /tmp/cpu_chip.txt
+          cat /tmp/geo.json
+          echo ""
+          echo "=== Installing BetterDisplay, DisplayPlacer & Sunshine via Homebrew ==="
           export HOMEBREW_NO_INSTALL_CLEANUP=1
-          brew install gstreamer pygobject3 python cloudflared displayplacer waydabber/betterdisplay/betterdisplaycli
+          brew update --quiet
+          export HOMEBREW_NO_AUTO_UPDATE=1
           brew install --cask betterdisplay
+          rm -f /opt/homebrew/bin/betterdisplaycli
+          brew install waydabber/betterdisplay/betterdisplaycli displayplacer cloudflared
           brew link --overwrite betterdisplaycli || true
-          "$(brew --prefix)/bin/python3" -m venv --system-site-packages .stream-venv
-          .stream-venv/bin/python -m pip install -e .
-          echo "$GITHUB_WORKSPACE/.stream-venv/bin" >> "$GITHUB_PATH"
-          .stream-venv/bin/python - <<'PY'
-          import gi
-          gi.require_version("Gst", "1.0")
-          gi.require_version("GstWebRTC", "1.0")
-          from gi.repository import Gst
-          Gst.init(None)
-          for name in ("webrtcbin", "avfvideosrc", "vtenc_h264", "rtph264pay"):
-              assert Gst.ElementFactory.find(name), f"missing {name}"
-          print(Gst.version_string())
-          PY
+          brew install lizardbyte/homebrew/sunshine
+          echo "=== Installing AsyncSSH for SSH Server ==="
+          python3 -m venv "$HOME/.ssh-venv"
+          "$HOME/.ssh-venv/bin/pip" install --upgrade pip asyncssh
+
+      # 2. Configure & self-test SSH server on port 22 with runner / root
+      - name: Verify SSH Server (runner / root)
+        env:
+          SUN_USER: ${{ github.event.inputs.sunshine_user || 'runner' }}
+          SUN_PASS: ${{ github.event.inputs.sunshine_password || 'root' }}
+        run: |
+          echo "=== Verifying AsyncSSH Server on Port 22 ==="
+          LOCAL_USER=$(id -un)
+          sudo launchctl bootout system/com.openssh.sshd 2>/dev/null || true
+          sudo pkill -f "scripts/ssh_server.py" 2>/dev/null || true
+
+          sudo "$HOME/.ssh-venv/bin/python" scripts/ssh_server.py \
+            --port 22 \
+            --user "$SUN_USER" \
+            --password "$SUN_PASS" \
+            --run-as "$LOCAL_USER" \
+            --host-key "$HOME/.ssh_host_ed25519" > /tmp/ssh_preflight.log 2>&1 &
+
+          for i in {1..15}; do
+            if nc -z 127.0.0.1 22 2>/dev/null; then
+              break
+            fi
+            sleep 0.5
+          done
+
+          cat /tmp/ssh_preflight.log || true
+
+          # Self-test live SSH password login
+          python3 - "$SUN_USER" "$SUN_PASS" << 'PYEOF'
+          import os, pty, select, sys, time
+          user, pw = sys.argv[1], sys.argv[2]
+          pid, fd = pty.fork()
+          if pid == 0:
+              os.execvp("ssh", [
+                  "ssh",
+                  "-o", "StrictHostKeyChecking=no",
+                  "-o", "UserKnownHostsFile=/dev/null",
+                  "-o", "PreferredAuthentications=password,keyboard-interactive",
+                  "-o", "PubkeyAuthentication=no",
+                  f"{user}@127.0.0.1",
+                  "id -un && echo SSH_LOGIN_OK"
+              ])
+          buf = b""
+          sent = False
+          deadline = time.time() + 15
+          while time.time() < deadline:
+              r, _, _ = select.select([fd], [], [], 0.5)
+              if r:
+                  try:
+                      chunk = os.read(fd, 4096)
+                  except OSError:
+                      break
+                  if not chunk:
+                      break
+                  buf += chunk
+                  if (b"assword:" in buf or b"Password:" in buf) and not sent:
+                      os.write(fd, (pw + "\n").encode())
+                      sent = True
+                  if b"SSH_LOGIN_OK" in buf:
+                      print("✅ Verified live SSH login:", buf.decode(errors="replace").strip())
+                      sys.exit(0)
+          print("❌ SSH login verification failed. Output:", buf.decode(errors="replace"))
+          sys.exit(1)
+          PYEOF
+
+          sudo pkill -f "scripts/ssh_server.py" 2>/dev/null || true
+          sleep 1
 
       - name: Create the desktop display
         env:
-          DISP_W: '1280'
-          DISP_H: '720'
+          DISP_W: ${{ inputs.display_width || '1280' }}
+          DISP_H: ${{ inputs.display_height || '720' }}
         run: bash scripts/ci/setup_display.sh
 
-      - name: Install Opiumware and patched Roblox
-        run: bash scripts/ci/install_apps.sh
-
-      - name: Build the Luau syntax checker
-        run: python -m whoisauto build-compiler
+      - name: Install whoisauto and build the Luau checker
+        run: |
+          python -m pip install -e .
+          python -m whoisauto build-compiler
 
       - name: Save runner DNS settings
         run: |
-          python - <<'PY'
+          python3 - <<'PY'
           import json, os, pathlib, subprocess
           settings = {}
           for kind in ("dnsservers", "searchdomains"):
@@ -67,67 +165,208 @@ jobs:
           (pathlib.Path(os.environ["RUNNER_TEMP"]) / "whoisauto-dns.json").write_text(json.dumps(settings))
           PY
 
+      # 4. Connect runner to your Tailscale network
       - name: Connect to Tailscale
         uses: tailscale/github-action@v4
         with:
-          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          authkey: ${{ github.event.inputs.tailscale_authkey || secrets.TAILSCALE_AUTHKEY }}
+          version: latest
           args: --accept-dns=false
 
-      - name: Record private media address
+      # 5. Configure Sunshine (runner / root + CSRF allowed origins) & Preflight Test
+      - name: Configure Sunshine & Verify CSRF
+        env:
+          SUN_USER: ${{ github.event.inputs.sunshine_user || 'runner' }}
+          SUN_PASS: ${{ github.event.inputs.sunshine_password || 'root' }}
         run: |
-          # The action sets macOS DNS directly, even with --accept-dns=false.
-          python - <<'PY'
+          # Restore the runner's original DNS after the Tailscale action.
+          python3 - <<'PY'
           import json, os, pathlib, subprocess
           settings = json.loads((pathlib.Path(os.environ["RUNNER_TEMP"]) / "whoisauto-dns.json").read_text())
           for kind, values in settings.items():
               subprocess.run(["sudo", "networksetup", "-set" + kind, "Ethernet", *values], check=True)
           PY
-          echo "WHOISAUTO_TAILSCALE_IP=$(tailscale ip -4)" >> "$GITHUB_ENV"
 
-      - name: Start API and WebRTC panel
+          mkdir -p ~/.config/sunshine
+
+          TS_IP=$(tailscale ip -4 | head -n1 | tr -d '[:space:]')
+          TS_IPV6=$(tailscale ip -6 2>/dev/null | head -n1 | tr -d '[:space:]' || true)
+          TS_JSON=$(tailscale status --json)
+          TS_FQDN=$(python3 -c 'import sys,json; d=json.loads(sys.argv[1]); print(d.get("Self",{}).get("DNSName","").rstrip("."))' "$TS_JSON")
+          TS_HOST=$(python3 -c 'import sys,json; d=json.loads(sys.argv[1]); print(d.get("Self",{}).get("HostName",""))' "$TS_JSON")
+
+          ORIGINS=$(python3 - "$TS_IP" "$TS_IPV6" "$TS_FQDN" "$TS_HOST" << 'PYEOF'
+          import sys
+          ip4, ip6, fqdn, host = sys.argv[1:5]
+          hosts = []
+          for h in [ip4, f"[{ip6}]" if ip6 else "", fqdn, fqdn.lower(), host, host.lower(), "localhost", "127.0.0.1"]:
+              if h and h not in hosts:
+                  hosts.append(h)
+          origins = []
+          for h in hosts:
+              origins.append(f"https://{h}:47990")
+              origins.append(f"https://{h}")
+          print(",".join(origins))
+          PYEOF
+          )
+
+          STREAM_CG_ID=$(cat /tmp/stream_display_id.txt 2>/dev/null || echo "2")
+          ACTIVE_RES=$(cat /tmp/active_resolution.txt 2>/dev/null || echo "unknown")
+
+          cat << EOF > ~/.config/sunshine/sunshine.conf
+          sunshine_name = macOS-Runner
+          address_family = both
+          origin_web_ui_allowed = wan
+          csrf_allowed_origins = $ORIGINS
+          output_name = $STREAM_CG_ID
+          encoder = videotoolbox
+          vt_coder = cavlc
+          vt_realtime = enabled
+          vt_software = disabled
+          fec_percentage = 5
+          qp = 26
+          min_threads = 2
+          EOF
+          sed -i '' 's/^[[:space:]]*//' ~/.config/sunshine/sunshine.conf
+
+          echo "=== Generated ~/.config/sunshine/sunshine.conf ==="
+          cat ~/.config/sunshine/sunshine.conf
+
+          sunshine ~/.config/sunshine/sunshine.conf --creds "$SUN_USER" "$SUN_PASS"
+
+          # Preflight test: verify Web UI auth + CSRF check with Tailscale IP Origin header
+          sunshine ~/.config/sunshine/sunshine.conf > /tmp/sunshine-preflight.log 2>&1 &
+          PRE_PID=$!
+          CSRF_STATUS="untested"
+          for i in {1..15}; do
+            sleep 1
+            HTTP_CODE=$(curl -k -s -o /tmp/pin_resp.txt -w "%{http_code}" \
+              -u "${SUN_USER}:${SUN_PASS}" \
+              -X POST \
+              -H "Origin: https://${TS_IP}:47990" \
+              -H "Content-Type: application/json" \
+              -d '{"pin":"0000","name":"preflight","pairing_id":"00000000000000000000000000000000"}' \
+              "https://${TS_IP}:47990/api/pin" || true)
+            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "400" ]; then
+              RESP_BODY=$(cat /tmp/pin_resp.txt 2>/dev/null || true)
+              if echo "$RESP_BODY" | grep -qi "csrf"; then
+                CSRF_STATUS="blocked_csrf_${HTTP_CODE}"
+                echo "❌ CSRF blocked: $RESP_BODY"
+              else
+                CSRF_STATUS="passed_${HTTP_CODE}"
+                echo "✅ Sunshine Web UI auth & CSRF check PASSED (HTTP $HTTP_CODE: $RESP_BODY)!"
+                break
+              fi
+            elif [ "$HTTP_CODE" != "000" ]; then
+              CSRF_STATUS="http_${HTTP_CODE}"
+              echo "Attempt $i returned HTTP $HTTP_CODE: $(cat /tmp/pin_resp.txt 2>/dev/null || true)"
+            fi
+          done
+          # Wait briefly if encoder probe hasn't finished yet in preflight log
+          for i in {1..8}; do
+            if grep -qE "No screen capture permission|Found H\.264 encoder|Screencapture failed" /tmp/sunshine-preflight.log 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          kill $PRE_PID 2>/dev/null || true
+          wait $PRE_PID 2>/dev/null || true
+
+          echo "=== Sunshine Preflight Log ==="
+          cat /tmp/sunshine-preflight.log || true
+
+          CAPTURE_STATUS="unknown"
+          if grep -qi "No screen capture permission" /tmp/sunshine-preflight.log 2>/dev/null; then
+            CAPTURE_STATUS="needs_screen_recording_approval"
+          elif grep -qi "Found H.264 encoder" /tmp/sunshine-preflight.log 2>/dev/null; then
+            CAPTURE_STATUS="encoder_probe_passed"
+          fi
+
+          mkdir -p /tmp/conn-info
+          cp /tmp/sunshine-preflight.log /tmp/conn-info/sunshine-preflight.log 2>/dev/null || true
+          LOCAL_USER=$(id -un)
+          CPU_CHIP=$(cat /tmp/cpu_chip.txt 2>/dev/null | head -n1 || echo "unknown")
+          MACOS_VER=$(sw_vers -productVersion 2>/dev/null || echo "unknown")
+          python3 - "$TS_IP" "$TS_IPV6" "$TS_FQDN" "$TS_HOST" "$SUN_USER" "$CSRF_STATUS" "$STREAM_CG_ID" "$ACTIVE_RES" "$LOCAL_USER" "$CPU_CHIP" "$MACOS_VER" "$CAPTURE_STATUS" << 'PYEOF' > /tmp/conn-info/connection-info.json
+          import json, sys
+          ip4, ip6, fqdn, host, user, csrf, disp_id, active_res, local_user, cpu_chip, macos_ver, cap_status = sys.argv[1:13]
+          try:
+              geo = json.load(open("/tmp/geo.json"))
+          except Exception:
+              geo = {}
+          print(json.dumps({
+              "tailscale_ipv4": ip4,
+              "tailscale_ipv6": ip6,
+              "tailscale_fqdn": fqdn,
+              "tailscale_hostname": host,
+              "ssh_command": f"ssh {user}@{ip4}",
+              "sunshine_web_ui": f"https://{ip4}:47990",
+              "sunshine_web_ui_fqdn": f"https://{fqdn}:47990" if fqdn else "",
+              "username": user,
+              "local_macos_user": local_user,
+              "macos_version": macos_ver.strip(),
+              "cpu_chip": cpu_chip.strip(),
+              "datacenter_city": geo.get("city", ""),
+              "datacenter_region": geo.get("region", ""),
+              "datacenter_country": geo.get("country", ""),
+              "csrf_preflight": csrf,
+              "screen_capture_status": cap_status,
+              "stream_display_id": disp_id,
+              "active_resolution": active_res
+          }, indent=2))
+          PYEOF
+          cat /tmp/conn-info/connection-info.json
+
+      # 5b. Desktop and Sunshine are up, so install Opiumware + patched Roblox
+      #     now: its first run needs a live window server, which only exists
+      #     after the virtual display and Sunshine have started.
+      - name: Install Opiumware and patched Roblox
+        run: |
+          # the bundled Injector is Intel; arm64 runners need Rosetta
+          # the installer opens with `clear` and runs under set -euo pipefail;
+          # with TERM unset that single failure aborts the whole install
+          bash scripts/ci/install_apps.sh
+
+      - name: Upload installer log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opium-install-log
+          retention-days: 3
+          if-no-files-found: ignore
+          path: /tmp/opium-install.log
+
+      # 5c. Start opom, the whoisauto panel and the public tunnel
+      - name: Start opom and the panel
         run: |
           python -m whoisauto start
-          xcrun swiftc whoisauto/native/desktop_input.swift -O -o runtime/state/desktop-input
-          bash scripts/ci/start_panel.sh
-          python - <<'PY'
-          import json, os, pathlib, urllib.error, urllib.request
-          from whoisauto.config import Paths, read_json
-          endpoint = json.loads(pathlib.Path("panel-endpoint.json").read_text())
-          base = read_json(Paths.load().state / "panel.json")["url"]
-          headers = {"Authorization": "Bearer " + endpoint["access_token"], "Content-Type": "application/json"}
-          def request(path, data=None):
-              body = None if data is None else json.dumps(data).encode()
-              with urllib.request.urlopen(urllib.request.Request(base + path, data=body, headers=headers), timeout=90) as response:
-                  return json.load(response)
-          try:
-              offer = request("/api/desktop/offer", {"type": "start"})
-              try:
-                  candidates = [line.split() for line in offer["sdp"].splitlines() if line.startswith("a=candidate:")]
-                  address = os.environ["WHOISAUTO_TAILSCALE_IP"]
-                  assert candidates and all(address in candidate for candidate in candidates), "Missing private media candidates"
-                  print("Real screen capture, input helper, and Tailscale media candidates passed")
-              finally:
-                  request("/api/desktop/stop", {"session": offer["session"]})
-          except urllib.error.HTTPError as error:
-              print(error.read().decode())
-              print(pathlib.Path("/tmp/panel.log").read_text())
-              raise SystemExit("Desktop startup check failed")
-          PY
-          {
-            echo "## WebRTC desktop"
-            echo "Connect your mobile device to Tailscale, then open the panel's Desktop tab. H.264 video and controls use the tailnet."
-          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Verify public panel
+          export WHOISAUTO_DESKTOP_MODE=sunshine
+          export WHOISAUTO_TAILSCALE_IP="$(tailscale ip -4 | head -n1 | tr -d '[:space:]')"
+          {
+            echo "WHOISAUTO_DESKTOP_MODE=sunshine"
+            echo "WHOISAUTO_TAILSCALE_IP=$WHOISAUTO_TAILSCALE_IP"
+          } >> "$GITHUB_ENV"
+          bash scripts/ci/start_panel.sh
+          # A runner cannot always reach its own quick tunnel (egress or DNS),
+          # so this is a warning: the URL still works from outside.
+          mkdir -p /tmp/conn-info
+          cp panel-endpoint.json /tmp/conn-info/panel.json
+
+      - name: Verify the public URL
         run: bash scripts/ci/check_panel.sh
 
-      - name: Publish desktop access
+      - name: Publish panel endpoint
         uses: actions/upload-artifact@v4
         with:
           name: panel-endpoint
-          path: panel-endpoint.json
           retention-days: 1
+          path: panel-endpoint.json
 
+      # Must run before the join: the panel arms the worker on /api/join, so a
+      # script saved afterwards would not fire until the next join.
+      # Both this and the join talk to the panel over loopback: Tailscale owns
+      # DNS by this point, so the quick tunnel hostname does not resolve here.
       - name: Arm auto exec
         env:
           AUTOEXEC_SCRIPT: ${{ inputs.autoexec_script }}
@@ -163,27 +402,74 @@ jobs:
           print(urllib.request.urlopen(request, timeout=60).read().decode())
           PY
 
-      - name: Keep desktop alive
+      # 6. Publish connection info immediately so it is accessible while Sunshine runs
+      - name: Upload Connection Info
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: sunshine-connection-info
+          path: /tmp/conn-info/
+          retention-days: 1
+
+      # 7. Start SSH, Sunshine & Keep Session Active
+      - name: Start SSH, Sunshine & Keep Alive
+        env:
+          SUN_USER: ${{ github.event.inputs.sunshine_user || 'runner' }}
+          SUN_PASS: ${{ github.event.inputs.sunshine_password || 'root' }}
         run: |
+          # Prevent display/system sleep
           caffeinate -d -i -m -s -u &
+
+          # Ensure BetterDisplay is still running
+          pgrep -x BetterDisplay >/dev/null || (/Applications/BetterDisplay.app/Contents/MacOS/BetterDisplay >/tmp/betterdisplay.log 2>&1 </dev/null &)
+
+          # Only open Screen Recording settings pane if TCC permission was not pre-granted natively
+          if grep -qi "No screen capture permission" /tmp/sunshine-preflight.log 2>/dev/null; then
+            open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture" 2>/dev/null || true
+          fi
+
+          # Start persistent AsyncSSH server on port 22 inside final step so it stays alive
+          LOCAL_USER=$(id -un)
+          sudo launchctl bootout system/com.openssh.sshd 2>/dev/null || true
+          sudo pkill -f "scripts/ssh_server.py" 2>/dev/null || true
+          sudo "$HOME/.ssh-venv/bin/python" scripts/ssh_server.py \
+            --port 22 \
+            --user "$SUN_USER" \
+            --password "$SUN_PASS" \
+            --run-as "$LOCAL_USER" \
+            --host-key "$HOME/.ssh_host_ed25519" > /tmp/ssh_server.log 2>&1 &
+
+          for i in {1..15}; do
+            if nc -z 127.0.0.1 22 2>/dev/null; then
+              echo "✅ Persistent SSH server listening on port 22"
+              break
+            fi
+            sleep 0.5
+          done
+
+          TS_IP=$(tailscale ip -4 | head -n1 | tr -d '[:space:]')
+          echo "=========================================================="
+          echo "🎉 SUNSHINE & SSH ARE LIVE ON MACOS!"
+          echo "=========================================================="
+          echo "Tailscale IP:       $TS_IP"
+          echo "SSH Access:         ssh ${SUN_USER}@${TS_IP}"
+          echo "Sunshine Web UI:    https://${TS_IP}:47990"
+          echo "whoisauto panel:    ${PANEL_URL}/?token=${PANEL_TOKEN}"
+          echo "Username:           ${SUN_USER}"
+          echo "Password:           use the configured Sunshine password"
+          echo "=========================================================="
+
           while true; do
-            python - <<'PY'
-          import os, urllib.request
-          from whoisauto.config import Paths, read_json
-          record = read_json(Paths.load().state / "panel.json")
-          if not record:
-              raise SystemExit("Panel stopped")
-          request = urllib.request.Request(record["url"] + "/api/state", headers={
-              "Authorization": "Bearer " + os.environ["WHOISAUTO_ACCESS_TOKEN"]})
-          with urllib.request.urlopen(request, timeout=15) as response:
-              assert response.status == 200
-          PY
-            sleep 30
+            sunshine ~/.config/sunshine/sunshine.conf || true
+            echo "Sunshine exited — restarting in 2 seconds..."
+            sleep 2
           done
 
       - name: Shut down
         if: always()
         run: |
-          pkill -f 'cloudflared tunnel' || true
-          pkill -f 'whoisauto serve' || true
+          pkill -x sunshine || true
+          sudo pkill -f "scripts/ssh_server.py" || true
+          pkill -f "cloudflared tunnel" || true
+          pkill -f "whoisauto serve" || true
           python -m whoisauto stop || true
