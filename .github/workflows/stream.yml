@@ -41,9 +41,6 @@ jobs:
           Gst.init(None)
           for name in ("webrtcbin", "avfvideosrc", "vtenc_h264", "rtph264pay"):
               assert Gst.ElementFactory.find(name), f"missing {name}"
-          gi.require_version("Nice", "0.1")
-          from gi.repository import Nice
-          assert hasattr(Nice.Agent, "add_local_address")
           print(Gst.version_string())
           PY
 

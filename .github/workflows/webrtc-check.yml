@@ -36,12 +36,9 @@ jobs:
           "$(brew --prefix)/bin/python3" - <<'PY'
           import gi
           gi.require_version("Gst", "1.0")
-          gi.require_version("Nice", "0.1")
           from gi.repository import Gst
-          from gi.repository import Nice
           Gst.init(None)
           for name in ("avfvideosrc", "vtenc_h264", "webrtcbin"):
               assert Gst.ElementFactory.find(name), name
-          assert hasattr(Nice.Agent, "add_local_address")
           print("Native capture, VideoToolbox and WebRTC plugins available")
           PY

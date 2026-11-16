@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import ctypes
+import ctypes.util
 import ipaddress
 import math
 import os
@@ -37,17 +39,53 @@ def tailscale_ip() -> str | None:
 
 def bind_tailnet(peer, address: str) -> None:
     try:
-        import gi
-        gi.require_version("Nice", "0.1")
-        from gi.repository import Nice
-        local = Nice.Address.new()
-        if not local.set_from_string(address):
-            raise ValueError("invalid local address")
-        agent = peer.get_property("ice-agent").get_property("agent")
-        if not agent.add_local_address(local):
+        library_name = ctypes.util.find_library("nice")
+        if not library_name:
+            for prefix in ("/opt/homebrew", "/usr/local"):
+                candidate = Path(prefix) / "opt/libnice/lib/libnice.10.dylib"
+                if candidate.is_file():
+                    library_name = str(candidate)
+                    break
+        if not library_name:
+            raise ValueError("libnice not found")
+        library = ctypes.CDLL(library_name)
+        pointer = ctypes.pythonapi.PyCapsule_GetPointer
+        pointer.argtypes = [ctypes.py_object, ctypes.c_char_p]
+        pointer.restype = ctypes.c_void_p
+        gobject_name = ctypes.util.find_library("gobject-2.0")
+        if not gobject_name:
+            raise ValueError("GObject not found")
+        gobject = ctypes.CDLL(gobject_name)
+        gobject.g_object_get.restype = None
+        gobject.g_object_unref.argtypes = [ctypes.c_void_p]
+        peer_pointer = pointer(peer.__gpointer__, None)
+        ice_pointer, agent_pointer = ctypes.c_void_p(), ctypes.c_void_p()
+        gobject.g_object_get(ctypes.c_void_p(peer_pointer), ctypes.c_char_p(b"ice-agent"), ctypes.byref(ice_pointer), None)
+        if not ice_pointer.value:
+            raise ValueError("ICE agent unavailable")
+        gobject.g_object_get(ice_pointer, ctypes.c_char_p(b"agent"), ctypes.byref(agent_pointer), None)
+        if not agent_pointer.value:
+            gobject.g_object_unref(ice_pointer)
+            raise ValueError("native agent unavailable")
+        library.nice_address_new.restype = ctypes.c_void_p
+        library.nice_address_set_from_string.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        library.nice_address_set_from_string.restype = ctypes.c_int
+        library.nice_agent_add_local_address.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        library.nice_agent_add_local_address.restype = ctypes.c_int
+        library.nice_address_free.argtypes = [ctypes.c_void_p]
+        local = library.nice_address_new()
+        try:
+            accepted = library.nice_address_set_from_string(local, address.encode("ascii"))
+            if accepted:
+                accepted = library.nice_agent_add_local_address(agent_pointer, local)
+        finally:
+            library.nice_address_free(local)
+            gobject.g_object_unref(agent_pointer)
+            gobject.g_object_unref(ice_pointer)
+        if not accepted:
             raise ValueError("local address rejected")
-    except (ImportError, ValueError, AttributeError):
-        raise DesktopError(503, "tailnet_unavailable", "Install libnice introspection support to bind Tailscale media") from None
+    except (OSError, ValueError, AttributeError):
+        raise DesktopError(503, "tailnet_unavailable", "Could not select the Tailscale media interface") from None
 
 
 def input_event(raw: str) -> dict | None:
