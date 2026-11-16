@@ -53,6 +53,9 @@ jobs:
       - name: Install Opiumware and patched Roblox
         run: bash scripts/ci/install_apps.sh
 
+      - name: Build the Luau syntax checker
+        run: python -m whoisauto build-compiler
+
       - name: Connect to Tailscale
         uses: tailscale/github-action@v4
         with:
@@ -65,7 +68,6 @@ jobs:
 
       - name: Start API and WebRTC panel
         run: |
-          python -m whoisauto build-compiler
           python -m whoisauto start
           xcrun swiftc whoisauto/native/desktop_input.swift -O -o runtime/state/desktop-input
           bash scripts/ci/start_panel.sh

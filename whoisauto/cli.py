@@ -60,7 +60,12 @@ def cmd_stop(args) -> int:
 
 def cmd_build_compiler(args) -> int:
     paths = _paths(args)
-    result = compiler.build(paths)
+    try:
+        result = compiler.build(paths)
+    except compiler.CompilerError as error:
+        if error.log:
+            print(error.log, file=sys.stderr)
+        raise
     print(json.dumps(result, indent=2))
     return 0
 
